@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MargDrishti — Smarter Roads. Safer Journeys.</title>
+  <meta name="description" content="AI-powered road damage detection, current location intelligence, explainable prioritization, and municipal maintenance workflow.">
+
+  <!-- Fonts: Barlow Semi Condensed & Syne for headlines, Plus Jakarta Sans for body, JetBrains Mono for telemetry -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <link rel="stylesheet" href="css/margdrishti.css">
+  <style>
+    /* Hero Perspective Container */
+    .hero-section {
+      position: relative;
+      background: #ffffff;
+      padding: 3rem 0 5rem 0;
+      overflow: hidden;
+      border-bottom: 1px solid var(--border-light);
+    }
+    .road-canvas-container {
+      position: absolute;
+      top: 0;
+      right: -5%;
+      width: 58%;
+      height: 100%;
+      pointer-events: auto;
+      z-index: 1;
+      overflow: hidden;
+    }
+    #roadCanvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      cursor: crosshair;
+    }
+    .road-telemetry-layer {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    .hero-container {
+      position: relative;
+      z-index: 2;
+      max-width: var(--max-width);
+      margin: 0 auto;
+      padding: 0 1.5rem;
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      align-items: center;
+      min-height: 520px;
+    }
+    .hero-badge-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+    .hero-sih-tag {
+      background: rgba(6, 182, 212, 0.12);
+      border: 1px solid rgba(6, 182, 212, 0.35);
+      color: var(--cyan-dark);
+      padding: 0.25rem 0.65rem;
+      border-radius: 9999px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .hero-title {
+      font-family: var(--font-display);
+      font-size: 3.4rem;
+      font-weight: 900;
+      line-height: 1.05;
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+      margin-bottom: 1rem;
+    }
+    .title-gradient {
+      background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero-subtitle {
+      font-size: 1.1rem;
+      color: var(--text-secondary);
+      max-width: 540px;
+      line-height: 1.6;
+      margin-bottom: 1.75rem;
+    }
+    .hero-cta-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.85rem;
+      align-items: center;
+      margin-bottom: 2rem;
+    }
+    .process-ribbon {
+      background: #090e17;
+      color: #ffffff;
+      padding: 0.9rem 0;
+      border-top: 1px solid rgba(6, 182, 212, 0.3);
+      border-bottom: 1px solid rgba(6, 182, 212, 0.3);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    }
+    .process-steps-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 1.25rem;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+    }
+    .process-step-node {
+      color: #22d3ee;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .process-step-arrow {
+      color: #64748b;
+    }
+    @media (max-width: 960px) {
+      .hero-container {
+        grid-template-columns: 1fr;
+      }
+      .road-canvas-container {
+        display: none;
+      }
+      .hero-title {
+        font-size: 2.5rem;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Ambient Light Accents -->
+  <div class="ambient-glow glow-top-cyan"></div>
+  <div class="ambient-glow glow-top-emerald"></div>
+  <div class="ambient-grid-overlay"></div>
+
+  <!-- SIH Presentation Demo Bar -->
+  <div class="demo-control-bar">
+    <div class="demo-bar-left">
+      <!-- <div class="demo-live-pill">
+        <span class="demo-pulse-dot"></span>
+        <span>SIH 2026 Live Demo</span>
+      </div> -->
+      <!-- <span style="color: #94a3b8; font-size: 0.75rem;">TRL08 Road Damage Intelligence</span> -->
+    </div>
+    <div class="demo-bar-center">
+      <a href="index.html" class="demo-nav-link active">
+        <i data-lucide="home" style="width: 14px; height: 14px;"></i>
+        <span>Home</span>
+      </a>
+      <a href="citizen.html" class="demo-nav-link">
+        <i data-lucide="user" style="width: 14px; height: 14px;"></i>
+        <span>Citizen Dashboard</span>
+      </a>
+      <a href="authority.html" class="demo-nav-link">
+        <i data-lucide="shield-check" style="width: 14px; height: 14px;"></i>
+        <span>Authority Dashboard</span>
+      </a>
+      <a href="map.html" class="demo-nav-link">
+        <i data-lucide="map" style="width: 14px; height: 14px;"></i>
+        <span>Pothole Map & Navigation</span>
+      </a>
+    </div>
+    <div class="demo-bar-right">
+      <button class="demo-btn-reset" title="Reset localStorage demo database back to clean initial state">
+        <i data-lucide="rotate-ccw" style="width: 12px; height: 12px;"></i>
+        <span>Reset Demo Data</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Header / Navigation -->
+  <header class="site-header">
+    <div class="navbar-inner">
+      <div class="brand-wrapper">
+        <div class="brand-icon-box">
+          <i data-lucide="scan-line"></i>
+        </div>
+        <div class="brand-titles">
+          <div class="brand-title-main">
+            MargDrishti <span class="brand-badge-ai">AI</span>
+          </div>
+          <div class="brand-subtitle-main">Smarter Roads. Safer Journeys.</div>
+        </div>
+      </div>
+
+      <div class="nav-actions">
+
+        <div style="display: flex; align-items: center; gap: 0.4rem; background: var(--bg-subtle); border: 1px solid var(--border-light); padding: 0.35rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; color: var(--emerald-dark);">
+          <span style="width: 7px; height: 7px; border-radius: 50%; background: var(--emerald-primary);"></span>
+          <span data-i18n="app.aiVisionOnline">AI Vision Online</span>
+        </div>
+        <div id="navAuthContainer" style="display: flex; align-items: center; gap: 0.5rem;">
+          <!-- Injected dynamically via landingApp.js -->
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- ================= HERO SECTION ================= -->
+    <section class="hero-section">
+      <!-- 3D Perspective Road Canvas Overlay -->
+      <div class="road-canvas-container">
+        <canvas id="roadCanvas"></canvas>
+        <div style="position: absolute; bottom: 12px; right: 16px; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(4px); padding: 4px 10px; border-radius: 6px; font-size: 11px; font-family: monospace; color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); pointer-events: none;">
+          ⚡ Click road to initiate surface scan
+        </div>
+      </div>
+
+      <div class="hero-container">
+        <div>
+          <div class="hero-badge-row">
+            <span class="hero-sih-tag">TRL08 — Software Category</span>
+            <span class="demo-honesty-tag">AI Analysis Demo Mode</span>
+          </div>
+
+          <h1 class="hero-title">
+            <span class="title-gradient">SMARTER ROADS.</span><br>
+            SAFER JOURNEYS.
+          </h1>
+
+          <p class="hero-subtitle">
+            Capture road damage through an image or video. Let AI detect potholes and cracks, identify the location, prioritize what matters, and track repairs to verified resolution.
+          </p>
+
+          <div class="hero-cta-group">
+            <button type="button" class="btn btn-primary btn-lg" onclick="window.handleHeroCitizenAction()">
+              <i data-lucide="camera"></i>
+              <span>Report Road Damage</span>
+            </button>
+            <button type="button" class="btn btn-dark btn-lg" onclick="window.handleHeroAuthorityAction()">
+              <i data-lucide="layout-dashboard"></i>
+              <span>Authority Dashboard</span>
+            </button>
+            <a href="map.html" class="btn btn-secondary btn-lg" style="border: 1.5px solid var(--border-medium);">
+              <i data-lucide="map" style="color: #0284c7;"></i>
+              <span>Pothole Map & Route</span>
+            </a>
+          </div>
+
+          <!-- Feature Bullets -->
+          <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem; font-size: 0.82rem; color: var(--text-secondary); max-width: 500px;">
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              <i data-lucide="check-circle-2" style="width: 16px; height: 16px; color: var(--emerald-primary);"></i>
+              <span>Image & Dashcam Video Inference</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              <i data-lucide="check-circle-2" style="width: 16px; height: 16px; color: var(--emerald-primary);"></i>
+              <span>Explainable Priority Score (0–100)</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              <i data-lucide="check-circle-2" style="width: 16px; height: 16px; color: var(--emerald-primary);"></i>
+              <span>Current GPS & Demo Location</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              <i data-lucide="check-circle-2" style="width: 16px; height: 16px; color: var(--emerald-primary);"></i>
+              <span>Synchronous Repair Tracking</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Visual Process Ribbon -->
+    <div class="process-ribbon">
+      <div class="container">
+        <div class="process-steps-row">
+          <div class="process-step-node"><i data-lucide="camera" style="width: 15px; height: 15px;"></i> CAPTURE</div>
+          <div class="process-step-arrow">→</div>
+          <div class="process-step-node"><i data-lucide="scan" style="width: 15px; height: 15px;"></i> DETECT</div>
+          <div class="process-step-arrow">→</div>
+          <div class="process-step-node"><i data-lucide="map-pin" style="width: 15px; height: 15px;"></i> LOCATE</div>
+          <div class="process-step-arrow">→</div>
+          <div class="process-step-node"><i data-lucide="activity" style="width: 15px; height: 15px;"></i> PRIORITIZE</div>
+          <div class="process-step-arrow">→</div>
+          <div class="process-step-node"><i data-lucide="git-commit" style="width: 15px; height: 15px;"></i> TRACK</div>
+          <div class="process-step-arrow">→</div>
+          <div class="process-step-node" style="color: #34d399;"><i data-lucide="check-circle-2" style="width: 15px; height: 15px;"></i> RESOLVE</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= VALUE CARDS SECTION ================= -->
+    <section style="padding: 4.5rem 0; background: var(--bg-primary);">
+      <div class="container">
+        <div style="text-align: center; max-width: 650px; margin: 0 auto 3rem auto;">
+          <span class="badge badge-priority-low" style="margin-bottom: 0.5rem;">Core Innovation</span>
+          <h2 style="font-family: var(--font-display); font-size: 2.2rem; font-weight: 800; color: var(--text-primary); margin-bottom: 0.5rem;">
+            MORE THAN JUST A POTHOLE DETECTOR
+          </h2>
+          <p style="font-size: 0.95rem; color: var(--text-secondary);">
+            MargDrishti closes the loop between computer vision intelligence, transparent prioritization, and municipal action.
+          </p>
+        </div>
+
+        <div class="grid grid-4">
+          <!-- Card 1 -->
+          <div class="card" style="padding: 1.5rem;">
+            <div style="width: 44px; height: 44px; border-radius: 10px; background: var(--cyan-light); color: var(--cyan-dark); display: flex; align-items: center; justify-content: center; margin-bottom: 1.25rem;">
+              <i data-lucide="cpu" style="width: 24px; height: 24px;"></i>
+            </div>
+            <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 0.5rem;">Image & Video AI Detection</h3>
+            <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5;">
+              Analyze road photos or dashcam videos to accurately identify supported damage types such as potholes and structural cracks.
+            </p>
+          </div>
+
+          <!-- Card 2 -->
+          <div class="card" style="padding: 1.5rem;">
+            <div style="width: 44px; height: 44px; border-radius: 10px; background: var(--emerald-light); color: var(--emerald-dark); display: flex; align-items: center; justify-content: center; margin-bottom: 1.25rem;">
+              <i data-lucide="map-pin" style="width: 24px; height: 24px;"></i>
+            </div>
+            <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 0.5rem;">Current Location Intelligence</h3>
+            <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5;">
+              Capture the user's current GPS location with high accuracy, paired with a reliable Demo Location fallback for bulletproof presentations.
+            </p>
+          </div>
+
+          <!-- Card 3 -->
+          <div class="card" style="padding: 1.5rem;">
+            <div style="width: 44px; height: 44px; border-radius: 10px; background: var(--amber-light); color: var(--amber-primary); display: flex; align-items: center; justify-content: center; margin-bottom: 1.25rem;">
+              <i data-lucide="sliders" style="width: 24px; height: 24px;"></i>
+            </div>
+            <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 0.5rem;">Explainable Prioritization</h3>
+            <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5;">
+              Converts damage severity, extent, road importance, traffic, and sensitive zones into an explainable 0–100 priority score.
+            </p>
+          </div>
+
+          <!-- Card 4 -->
+          <div class="card" style="padding: 1.5rem;">
+            <div style="width: 44px; height: 44px; border-radius: 10px; background: var(--purple-light); color: var(--purple-primary); display: flex; align-items: center; justify-content: center; margin-bottom: 1.25rem;">
+              <i data-lucide="git-branch" style="width: 24px; height: 24px;"></i>
+            </div>
+            <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 0.5rem;">Maintenance Tracking</h3>
+            <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5;">
+              Track complaints from submission through work order dispatch and final closure with post-repair photographic proof.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= INTERACTIVE LIFECYCLE SIMULATOR ================= -->
+    <section style="padding: 4rem 0; background: var(--bg-surface); border-top: 1px solid var(--border-light); border-bottom: 1px solid var(--border-light);">
+      <div class="container">
+        <div style="text-align: center; max-width: 680px; margin: 0 auto 2.5rem auto;">
+          <h2 style="font-family: var(--font-display); font-size: 2rem; font-weight: 800; color: var(--text-primary); margin-bottom: 0.4rem;">
+            INTERACTIVE ROAD DEFECT LIFECYCLE
+          </h2>
+          <p style="font-size: 0.9rem; color: var(--text-secondary);">
+            Click on each step below to inspect how MargDrishti processes road damage from detection to verification.
+          </p>
+        </div>
+
+        <!-- 5 Step Switcher -->
+        <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.75rem; margin-bottom: 1.5rem;">
+          <button type="button" class="card pipeline-step-box active" data-step="1" style="padding: 0.85rem; text-align: center; border-radius: var(--radius-md);">
+            <div style="font-family: var(--font-mono); font-size: 0.7rem; font-weight: 700; color: var(--cyan-dark);">STEP 01</div>
+            <div style="font-weight: 700; font-size: 0.85rem; margin-top: 2px;">Report</div>
+          </button>
+          <button type="button" class="card pipeline-step-box" data-step="2" style="padding: 0.85rem; text-align: center; border-radius: var(--radius-md);">
+            <div style="font-family: var(--font-mono); font-size: 0.7rem; font-weight: 700; color: var(--cyan-dark);">STEP 02</div>
+            <div style="font-weight: 700; font-size: 0.85rem; margin-top: 2px;">AI Detects</div>
+          </button>
+          <button type="button" class="card pipeline-step-box" data-step="3" style="padding: 0.85rem; text-align: center; border-radius: var(--radius-md);">
+            <div style="font-family: var(--font-mono); font-size: 0.7rem; font-weight: 700; color: var(--cyan-dark);">STEP 03</div>
+            <div style="font-weight: 700; font-size: 0.85rem; margin-top: 2px;">Priority</div>
+          </button>
+          <button type="button" class="card pipeline-step-box" data-step="4" style="padding: 0.85rem; text-align: center; border-radius: var(--radius-md);">
+            <div style="font-family: var(--font-mono); font-size: 0.7rem; font-weight: 700; color: var(--cyan-dark);">STEP 04</div>
+            <div style="font-weight: 700; font-size: 0.85rem; margin-top: 2px;">Authority Acts</div>
+          </button>
+          <button type="button" class="card pipeline-step-box" data-step="5" style="padding: 0.85rem; text-align: center; border-radius: var(--radius-md);">
+            <div style="font-family: var(--font-mono); font-size: 0.7rem; font-weight: 700; color: var(--cyan-dark);">STEP 05</div>
+            <div style="font-weight: 700; font-size: 0.85rem; margin-top: 2px;">Road Fixed</div>
+          </button>
+        </div>
+
+        <!-- Simulator Content Card -->
+        <div class="card" style="padding: 1.75rem; background: var(--bg-subtle);">
+          <div id="stepSimulatorBody">
+            <!-- Dynamic step injected by landingApp.js -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= LIVE APPLICATION METRICS ================= -->
+    <section id="telemetry-section" style="padding: 3.5rem 0; background: #090e17; color: #ffffff;">
+      <div class="container">
+        <div class="grid grid-4" style="text-align: center;">
+          <div>
+            <div style="font-size: 0.75rem; font-weight: 700; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.05em;">Complaints Reported</div>
+            <div id="statReports" style="font-family: var(--font-display); font-size: 2.8rem; font-weight: 900; line-height: 1.1; margin: 0.35rem 0;">0</div>
+            <div style="font-size: 0.72rem; color: #94a3b8;">Citizen & GIS Submissions</div>
+          </div>
+          <div>
+            <div style="font-size: 0.75rem; font-weight: 700; color: #34d399; text-transform: uppercase; letter-spacing: 0.05em;">Detection Precision</div>
+            <div style="display: flex; align-items: baseline; justify-content: center; gap: 2px;">
+              <div id="statAccuracy" style="font-family: var(--font-display); font-size: 2.8rem; font-weight: 900; line-height: 1.1; margin: 0.35rem 0;">94.2</div>
+              <span style="font-size: 1.2rem; color: #34d399;">%</span>
+            </div>
+            <div style="font-size: 0.72rem; color: #94a3b8;">YOLO11 Object Detection Benchmark</div>
+          </div>
+          <div>
+            <div style="font-size: 0.75rem; font-weight: 700; color: #fbbf24; text-transform: uppercase; letter-spacing: 0.05em;">Verified Repairs Closed</div>
+            <div id="statRepairs" style="font-family: var(--font-display); font-size: 2.8rem; font-weight: 900; line-height: 1.1; margin: 0.35rem 0;">0</div>
+            <div style="font-size: 0.72rem; color: #94a3b8;">Post-Repair Photographic Proof</div>
+          </div>
+          <div>
+            <div style="font-size: 0.75rem; font-weight: 700; color: #a78bfa; text-transform: uppercase; letter-spacing: 0.05em;">Active Corridors Monitored</div>
+            <div id="statCorridors" style="font-family: var(--font-display); font-size: 2.8rem; font-weight: 900; line-height: 1.1; margin: 0.35rem 0;">0</div>
+            <div style="font-size: 0.72rem; color: #94a3b8;">Post-Repair Monitoring Cycle</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= CTA BANNER ================= -->
+    <section style="padding: 4rem 0; background: var(--bg-primary);">
+      <div class="container">
+        <div class="card" style="padding: 3rem 2rem; text-align: center; background: linear-gradient(135deg, #ffffff 0%, #f1f5f9 100%); border: 1.5px solid var(--border-medium);">
+          <h2 style="font-family: var(--font-display); font-size: 2.2rem; font-weight: 800; color: var(--text-primary); margin-bottom: 0.5rem;">
+           Overall System Workflow
+          </h2>
+          <p style="font-size: 0.95rem; color: var(--text-secondary); max-width: 580px; margin: 0 auto 1.75rem auto;">
+            Experience the complete flow: Submit road damage as a citizen, inspect YOLO11 detections & explainable priority, and resolve the issue on the authority command center.
+          </p>
+          <div style="display: flex; justify-content: center; gap: 1rem; flex-wrap: wrap;">
+            <a href="citizen.html" class="btn btn-primary btn-lg">
+              <i data-lucide="user"></i>
+              <span>Launch Citizen Dashboard</span>
+            </a>
+            <a href="authority.html" class="btn btn-dark btn-lg">
+              <i data-lucide="shield-check"></i>
+              <span>Open Authority Command Center</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ================= AUTHENTICATION MODAL (CITIZEN & AUTHORITY) ================= -->
+  <div class="modal-backdrop" id="authModal">
+    <div class="modal-card" style="max-width: 480px;">
+      <button class="modal-close-btn" onclick="window.closeAuthModal()" aria-label="Close modal">
+        <i data-lucide="x"></i>
+      </button>
+
+      <div style="padding: 1.75rem 1.75rem 1.25rem 1.75rem;">
+        <!-- Header Info -->
+        <div style="text-align: center; margin-bottom: 1.25rem;">
+          <div class="brand-icon-box" style="margin: 0 auto 0.75rem auto; width: 44px; height: 44px;">
+            <i data-lucide="scan-line" style="width: 24px; height: 24px;"></i>
+          </div>
+          <h2 style="font-family: var(--font-display); font-size: 1.5rem; font-weight: 800; color: var(--text-primary); margin-bottom: 2px;">
+            MargDrishti Access Portal
+          </h2>
+          <p class="text-xs text-muted">Select your portal to log in or register your citizen account.</p>
+        </div>
+
+        <!-- Role Selector Tabs -->
+        <div class="modal-role-tabs">
+          <button type="button" class="role-tab citizen-tab active" id="modalRoleCitizen" onclick="window.setAuthRole('citizen')">
+            <i data-lucide="user" style="width: 15px; height: 15px;"></i>
+            <span>Citizen Portal</span>
+          </button>
+          <button type="button" class="role-tab authority-tab" id="modalRoleAuthority" onclick="window.setAuthRole('authority')">
+            <i data-lucide="shield-check" style="width: 15px; height: 15px;"></i>
+            <span>Authority Portal</span>
+          </button>
+        </div>
+
+        <!-- Mode Toggle (Citizen Only) -->
+        <div class="auth-type-switch" id="authModeSwitch">
+          <button type="button" class="auth-type-btn active" id="btnSwitchLogin" onclick="window.setAuthMode('login')">Log In</button>
+          <button type="button" class="auth-type-btn" id="btnSwitchSignup" onclick="window.setAuthMode('signup')">Sign Up</button>
+        </div>
+
+        <!-- Official Authority Notice -->
+        <div id="authAuthorityNotice" style="display: none; background: #ecfdf5; border: 1px solid rgba(16, 185, 129, 0.3); color: #065f46; padding: 0.65rem 0.85rem; border-radius: 8px; font-size: 0.75rem; margin-bottom: 1rem;">
+          <i data-lucide="shield-alert" style="width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; color: #059669;"></i>
+          <strong>Municipal Authority Access Only.</strong> Public registration is restricted to verified departmental personnel.
+        </div>
+
+        <!-- ================= LOGIN FORM ================= -->
+        <form id="authLoginForm">
+          <div id="loginErrorBox" class="hidden" style="background: #fef2f2; border: 1px solid rgba(239, 68, 68, 0.3); color: #b91c1c; padding: 0.6rem 0.85rem; border-radius: 6px; font-size: 0.78rem; margin-bottom: 0.85rem;"></div>
+
+          <div class="form-group">
+            <label class="form-label" for="loginEmailInput">Email / Official ID</label>
+            <div class="input-wrapper">
+              <i data-lucide="mail" class="input-icon"></i>
+              <input type="text" id="loginEmailInput" class="form-control" placeholder="name@domain.com or authority ID" required />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="loginPasswordInput">Password</label>
+            <div class="input-wrapper">
+              <i data-lucide="lock" class="input-icon"></i>
+              <input type="password" id="loginPasswordInput" class="form-control" placeholder="••••••••" required />
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; font-size: 0.78rem;">
+            <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer; color: var(--text-secondary);">
+              <input type="checkbox" checked />
+              <span>Remember me</span>
+            </label>
+            <a href="javascript:void(0)" onclick="window.fillDemoLogin()" style="color: var(--cyan-dark); font-weight: 600;">Forgot password?</a>
+          </div>
+
+          <button type="submit" class="btn btn-primary" id="btnLoginSubmit" style="width: 100%; padding: 0.75rem;">
+            <span id="btnLoginSubmitText">Login to Citizen Portal</span>
+            <i data-lucide="arrow-right" style="width: 15px; height: 15px;"></i>
+          </button>
+
+          <!-- Demo Quick Fill Box -->
+          <div class="demo-autofill-box">
+            <span>⚡ <span id="autofillRoleLabel">Citizen Demo Account</span></span>
+            <button type="button" class="demo-btn-autofill" onclick="window.fillDemoLogin()">Auto-fill Demo</button>
+          </div>
+        </form>
+
+        <!-- ================= SIGN UP FORM (CITIZEN ONLY) ================= -->
+        <form id="authSignupForm" style="display: none;">
+          <div id="signupErrorBox" class="hidden" style="background: #fef2f2; border: 1px solid rgba(239, 68, 68, 0.3); color: #b91c1c; padding: 0.6rem 0.85rem; border-radius: 6px; font-size: 0.78rem; margin-bottom: 0.85rem;"></div>
+          <div id="signupSuccessBox" class="hidden" style="background: #f0fdf4; border: 1px solid rgba(22, 163, 74, 0.3); color: #15803d; padding: 0.6rem 0.85rem; border-radius: 6px; font-size: 0.78rem; margin-bottom: 0.85rem;"></div>
+
+          <div class="form-group">
+            <label class="form-label" for="signupNameInput">Full Name</label>
+            <div class="input-wrapper">
+              <i data-lucide="user" class="input-icon"></i>
+              <input type="text" id="signupNameInput" class="form-control" placeholder="e.g. Aishwarya Patil" required />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="signupEmailInput">Email Address</label>
+            <div class="input-wrapper">
+              <i data-lucide="mail" class="input-icon"></i>
+              <input type="email" id="signupEmailInput" class="form-control" placeholder="name@example.com" required />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="signupMobileInput">10-Digit Mobile Number</label>
+            <div class="input-wrapper">
+              <i data-lucide="phone" class="input-icon"></i>
+              <input type="tel" id="signupMobileInput" class="form-control font-mono" placeholder="+91 98860 11223" required />
+            </div>
+          </div>
+
+          <!-- Authority Specific Fields (shown only when Authority role is active) -->
+          <div id="signupAuthorityFields" style="display: none;">
+            <div class="form-group">
+              <label class="form-label" for="signupRoadTypeSelect">
+                Road / Location Type <span style="color: #ef4444;">*</span>
+              </label>
+              <div class="input-wrapper">
+                <i data-lucide="compass" class="input-icon"></i>
+                <select id="signupRoadTypeSelect" class="form-control" style="cursor: pointer;">
+                  <option value="" disabled selected>-- Select Road / Location Type --</option>
+                  <option value="National Highway">National Highway</option>
+                  <option value="State Highway">State Highway</option>
+                  <option value="Major District Road (MDR)">Major District Road (MDR)</option>
+                  <option value="Other District Road (ODR)">Other District Road (ODR)</option>
+                  <option value="Village Road (VR)">Village Road (VR)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="signupResponsibleAuthorityInput">
+                Responsible Authority <span style="font-size: 0.7rem; color: var(--text-muted); font-weight: normal;">(Auto-mapped)</span>
+              </label>
+              <div class="input-wrapper">
+                <i data-lucide="shield" class="input-icon"></i>
+                <input type="text" id="signupResponsibleAuthorityInput" class="form-control" readonly placeholder="Select Road Type above to see Responsible Authority" style="background: var(--bg-subtle); color: #0284c7; font-weight: 700;" />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="signupJurisdictionInput">
+                Jurisdiction / Area <span style="color: #ef4444;">*</span>
+              </label>
+              <div class="input-wrapper">
+                <i data-lucide="map-pin" class="input-icon"></i>
+                <input type="text" id="signupJurisdictionInput" class="form-control" placeholder="e.g. Kolhapur City, Ward 5, NH-48 Section" />
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="signupDepartmentInput">
+                Department / Authority Division <span style="font-size: 0.7rem; color: var(--text-muted); font-weight: normal;">(Optional)</span>
+              </label>
+              <div class="input-wrapper">
+                <i data-lucide="building-2" class="input-icon"></i>
+                <input type="text" id="signupDepartmentInput" class="form-control" placeholder="e.g. Road Maintenance & Infrastructure Cell" />
+              </div>
+            </div>
+          </div>
+
+          <div class="grid grid-2" style="margin-bottom: 1rem;">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label" for="signupPasswordInput">Password</label>
+              <div class="input-wrapper">
+                <i data-lucide="lock" class="input-icon"></i>
+                <input type="password" id="signupPasswordInput" class="form-control" placeholder="Min 6 chars" required />
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label" for="signupConfirmPasswordInput">Confirm Password</label>
+              <div class="input-wrapper">
+                <i data-lucide="lock" class="input-icon"></i>
+                <input type="password" id="signupConfirmPasswordInput" class="form-control" placeholder="Re-type" required />
+              </div>
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-emerald" id="btnSignupSubmit" style="width: 100%; padding: 0.75rem;">
+            <span id="btnSignupSubmitText">Create Citizen Account</span>
+            <i data-lucide="check" style="width: 15px; height: 15px;"></i>
+          </button>
+
+          <div style="text-align: center; margin-top: 1rem; font-size: 0.78rem; color: var(--text-muted);">
+            Already have an account? <a href="javascript:void(0)" onclick="window.setAuthMode('login')" style="color: var(--cyan-dark); font-weight: 700;">Log In</a>
+          </div>
+        </form>
+
+      </div>
+    </div>
+  </div>
+  <footer style="background: #ffffff; border-top: 1px solid var(--border-light); padding: 2rem 0; font-size: 0.8rem; color: var(--text-muted);">
+    <div class="container" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+      <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <strong>MargDrishti</strong> &bull; Smarter Roads. Safer Journeys. &bull; Smart India Hackathon Prototype
+      </div>
+      <div style="display: flex; align-items: center; gap: 1rem;">
+        <span class="demo-honesty-tag">Demo Data Mode</span>
+        <span>YOLO11 Model Simulation</span>
+        <!-- <span>HTML5 + CSS + JavaScript</span> -->
+      </div>
+    </div>
+  </footer>
+
+  <script type="module" src="js/i18n.js"></script>
+  <script type="module" src="js/landingApp.js"></script>
+</body>
+</html>

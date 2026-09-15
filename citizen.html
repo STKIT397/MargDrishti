@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Citizen Dashboard — MargDrishti</title>
+  <meta name="description" content="MargDrishti Citizen Dashboard. Report road damage, inspect AI vision detections, and track maintenance progress.">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Leaflet GIS Map -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <link rel="stylesheet" href="css/margdrishti.css">
+  <style>
+    .wizard-pane {
+      animation: fadeIn 0.25s ease;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Background Ambience -->
+  <div class="ambient-glow glow-top-cyan"></div>
+  <div class="ambient-glow glow-top-emerald"></div>
+  <div class="ambient-grid-overlay"></div>
+
+  <!-- SIH Demo Control Bar -->
+  <div class="demo-control-bar">
+    <div class="demo-bar-left">
+      <div class="demo-live-pill">
+        <span class="demo-pulse-dot"></span>
+        <span>SIH 2026 Live Demo</span>
+      </div>
+      <span style="color: #94a3b8; font-size: 0.75rem;">Citizen Reporting & Lifecycle Tracking</span>
+    </div>
+    <div class="demo-bar-center">
+      <a href="index.html" class="demo-nav-link">
+        <i data-lucide="home" style="width: 14px; height: 14px;"></i>
+        <span>Home</span>
+      </a>
+      <a href="citizen.html" class="demo-nav-link active">
+        <i data-lucide="user" style="width: 14px; height: 14px;"></i>
+        <span>Citizen Dashboard</span>
+      </a>
+      <a href="authority.html" class="demo-nav-link">
+        <i data-lucide="shield-check" style="width: 14px; height: 14px;"></i>
+        <span>Authority Dashboard</span>
+      </a>
+      <a href="map.html" class="demo-nav-link">
+        <i data-lucide="map" style="width: 14px; height: 14px;"></i>
+        <span>Pothole Map & Navigation</span>
+      </a>
+    </div>
+    <div class="demo-bar-right">
+      <button class="demo-btn-reset" title="Reset demo data to initial seed">
+        <i data-lucide="rotate-ccw" style="width: 12px; height: 12px;"></i>
+        <span>Reset Demo Data</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Header -->
+  <header class="site-header">
+    <div class="navbar-inner">
+      <div class="brand-wrapper">
+        <a href="index.html" style="display: flex; align-items: center; gap: 0.75rem;">
+          <div class="brand-icon-box">
+            <i data-lucide="scan-line"></i>
+          </div>
+          <div class="brand-titles">
+            <div class="brand-title-main">
+              MargDrishti <span class="brand-badge-ai">AI</span>
+            </div>
+            <div class="brand-subtitle-main">Smarter Roads. Safer Journeys.</div>
+          </div>
+        </a>
+      </div>
+
+      <div class="nav-actions">
+        <div class="user-profile-chip" id="citizenProfileChip">
+          <div class="user-avatar-dot" id="citizenAvatarDot">C</div>
+          <div style="display: flex; flex-direction: column; text-align: left; line-height: 1.1;">
+            <div style="display: flex; align-items: center; gap: 4px;">
+              <span style="font-weight: 700; font-size: 0.82rem;" id="citizenDisplayName">Citizen</span>
+              <span class="badge badge-priority-low" style="font-size: 0.65rem; padding: 1px 5px; font-family: var(--font-mono);" id="citizenDisplayId">CIT-2026-000001</span>
+            </div>
+            <span style="font-size: 0.68rem; color: var(--text-muted);" id="citizenDisplayEmail">citizen@margdrishti.demo</span>
+          </div>
+          <button type="button" class="btn-logout" onclick="window.citizenLogout()" title="Log out of Citizen account">
+            <i data-lucide="log-out" style="width: 12px; height: 12px;"></i>
+            <span>Logout</span>
+          </button>
+        </div>
+        <a href="map.html" class="btn btn-secondary btn-sm" title="Explore Pothole Map & Route Planner">
+          <i data-lucide="map"></i>
+          <span data-i18n="nav.potholeMap">Pothole Map</span>
+        </a>
+        <button type="button" class="btn btn-primary btn-sm" id="btnOpenReportModal">
+          <i data-lucide="plus-circle"></i>
+          <span data-i18n="nav.reportDamage">Report Road Damage</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="container" style="padding-top: 2rem; padding-bottom: 4rem;">
+    
+    <!-- Hero / Action Ribbon -->
+    <div class="card" style="padding: 1.75rem; margin-bottom: 1.5rem; background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);">
+      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+        <div>
+          <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+            <span class="badge badge-status-analyzed">Citizen Portal</span>
+            <span class="demo-honesty-tag">AI Analysis Demo Mode</span>
+          </div>
+          <h1 style="font-family: var(--font-display); font-size: 1.9rem; font-weight: 800; color: var(--text-primary); margin-bottom: 0.25rem;" data-i18n="citizen.heroTitle">
+            Make Your Road Safer
+          </h1>
+          <p style="font-size: 0.88rem; color: var(--text-secondary); max-width: 600px;" data-i18n="citizen.heroSubtitle">
+            Report potholes or cracks using an image or video and help improve your community's roads.
+          </p>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+          <div style="display: flex; align-items: center; background: var(--bg-surface); border: 1px solid var(--border-medium); border-radius: var(--radius-sm); padding: 0.25rem 0.5rem;">
+            <input type="text" id="searchComplaintInput" placeholder="Search Complaint ID (e.g. MD-2026-0001)" data-i18n-placeholder="nav.searchPlaceholder" style="border: none; outline: none; padding: 0.35rem; font-size: 0.82rem; font-family: var(--font-mono); width: 230px;" />
+            <button type="button" class="btn btn-secondary btn-sm" id="btnSearchComplaint">
+              <i data-lucide="search" style="width: 14px; height: 14px;"></i>
+              <span data-i18n="nav.searchComplaint">Track</span>
+            </button>
+          </div>
+          <button type="button" class="btn btn-primary" onclick="window.openReportModal()">
+            <i data-lucide="camera"></i>
+            <span data-i18n="nav.reportDamage">+ Report Road Damage</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- KPI Metric Cards -->
+    <div class="kpi-grid">
+      <div class="kpi-card cyan">
+        <div class="kpi-header">
+          <span class="kpi-label" data-i18n="citizen.totalReports">Total Reports</span>
+          <div class="kpi-icon" style="background: var(--cyan-light); color: var(--cyan-dark);">
+            <i data-lucide="file-text"></i>
+          </div>
+        </div>
+        <div class="kpi-val" id="kpiTotalReports">--</div>
+        <div class="kpi-sub">Across indiranagar & metro corridors</div>
+      </div>
+
+      <div class="kpi-card amber">
+        <div class="kpi-header">
+          <span class="kpi-label" data-i18n="citizen.pendingTriage">Pending Triage</span>
+          <div class="kpi-icon" style="background: var(--amber-light); color: var(--amber-primary);">
+            <i data-lucide="clock"></i>
+          </div>
+        </div>
+        <div class="kpi-val" id="kpiPending">--</div>
+        <div class="kpi-sub">Awaiting authority dispatch</div>
+      </div>
+
+      <div class="kpi-card red">
+        <div class="kpi-header">
+          <span class="kpi-label" data-i18n="citizen.inProgress">In Progress</span>
+          <div class="kpi-icon" style="background: var(--red-light); color: var(--red-primary);">
+            <i data-lucide="tool"></i>
+          </div>
+        </div>
+        <div class="kpi-val" id="kpiInProgress">--</div>
+        <div class="kpi-sub">Repair squads on site</div>
+      </div>
+
+      <div class="kpi-card emerald">
+        <div class="kpi-header">
+          <span class="kpi-label" data-i18n="citizen.resolvedVerified">Resolved & Verified</span>
+          <div class="kpi-icon" style="background: var(--emerald-light); color: var(--emerald-dark);">
+            <i data-lucide="check-circle-2"></i>
+          </div>
+        </div>
+        <div class="kpi-val" id="kpiResolved">--</div>
+        <div class="kpi-sub">Verified with repair proof</div>
+      </div>
+    </div>
+
+    <!-- My Reports Section -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">
+          <i data-lucide="list-ordered" style="width: 18px; height: 18px; color: var(--cyan-dark);"></i>
+          <span data-i18n="citizen.myReports">My Road Damage Reports</span>
+        </div>
+        <span class="demo-honesty-tag">Persistent Local Storage</span>
+      </div>
+
+      <div class="table-responsive" style="border: none;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Complaint ID</th>
+              <th>Evidence</th>
+              <th>Damage Type</th>
+              <th>Location</th>
+              <th>Priority Score</th>
+              <th>Status</th>
+              <th>Date</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="myReportsTbody">
+            <tr>
+              <td colspan="8" style="text-align: center; padding: 2rem;" class="text-muted">
+                Loading reports...
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <!-- ================= MODAL 1: REPORT ROAD DAMAGE WIZARD ================= -->
+  <div class="modal-backdrop" id="reportWizardModal">
+    <div class="modal-card modal-lg">
+      <button class="modal-close-btn" id="btnCloseReportModal" aria-label="Close modal">
+        <i data-lucide="x"></i>
+      </button>
+
+      <!-- Stepper Header -->
+      <div style="padding: 1.25rem 1.5rem 0.5rem 1.5rem;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.85rem;">
+          <div>
+            <h2 style="font-family: var(--font-display); font-size: 1.4rem; font-weight: 800;">Report Road Damage</h2>
+            <p class="text-xs text-muted">Guided AI damage detection, current location, and explainable prioritization.</p>
+          </div>
+          <span class="demo-honesty-tag">TRL-08 Prototype</span>
+        </div>
+
+        <div class="wizard-header-steps">
+          <div class="wizard-step active" id="wizardStepNode1">
+            <div class="wizard-bubble">1</div>
+            <span>1. Evidence</span>
+          </div>
+          <div class="wizard-line"></div>
+          <div class="wizard-step" id="wizardStepNode2">
+            <div class="wizard-bubble">2</div>
+            <span>2. Location</span>
+          </div>
+          <div class="wizard-line"></div>
+          <div class="wizard-step" id="wizardStepNode3">
+            <div class="wizard-bubble">3</div>
+            <span>3. Details & AI</span>
+          </div>
+        </div>
+      </div>
+
+      <div style="padding: 0 1.5rem 1.5rem 1.5rem;">
+        
+        <!-- STEP 1 PANE: EVIDENCE UPLOAD & PREVIEW -->
+        <div id="wizardPaneStep1" class="wizard-pane">
+          <!-- Evidence Type Switcher -->
+          <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+            <button type="button" class="btn btn-secondary filter-tab-btn active" id="btnTypeImage" style="flex: 1;">
+              <i data-lucide="image"></i>
+              <span>Photo Evidence (JPG/PNG)</span>
+            </button>
+            <button type="button" class="btn btn-secondary filter-tab-btn" id="btnTypeVideo" style="flex: 1;">
+              <i data-lucide="video"></i>
+              <span>Dashcam Video (MP4/WebM)</span>
+            </button>
+          </div>
+
+          <!-- Dropzone -->
+          <div class="upload-dropzone" id="uploadDropzone">
+            <input type="file" id="mediaFileInput" accept="image/*" style="display: none;" />
+            <div class="dropzone-icon">
+              <i data-lucide="upload-cloud" style="width: 44px; height: 44px; margin: 0 auto;"></i>
+            </div>
+            <div class="dropzone-title">Click to browse or drag road damage file here</div>
+            <div class="dropzone-desc" id="dropzoneDesc">JPEG, PNG or WEBP up to 10MB</div>
+          </div>
+
+          <!-- Fast Preset Samples for Live Demo -->
+          <div style="margin-top: 1rem;">
+            <div style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.35rem;">
+              ⚡ Quick Preset Media (Instant SIH Demo):
+            </div>
+            <div class="sample-pills-row">
+              <button type="button" class="sample-pill-btn btn-sample-media" data-type="pothole">
+                <span>🕳️</span> Severe Indiranagar Pothole
+              </button>
+              <button type="button" class="sample-pill-btn btn-sample-media" data-type="crack">
+                <span>⚡</span> Hosur Road Alligator Cracks
+              </button>
+              <button type="button" class="sample-pill-btn btn-sample-media" data-type="video">
+                <span>🎥</span> Dashcam Road Video (14s Sample)
+              </button>
+            </div>
+          </div>
+
+          <!-- Media Preview & Validation Box -->
+          <div id="wizardMediaPreview" class="card hidden" style="margin-top: 1.25rem; padding: 1rem; background: var(--bg-subtle);">
+            <div style="display: flex; gap: 1.25rem; align-items: center;">
+              <!-- Image Preview -->
+              <img id="wizardPreviewImage" src="" alt="Damage Preview" style="width: 140px; height: 95px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border-medium);" />
+              <!-- Video Preview -->
+              <video id="wizardPreviewVideo" controls style="width: 140px; height: 95px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border-medium);" class="hidden"></video>
+              
+              <div style="flex: 1;">
+                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 4px;">
+                  <strong class="text-sm font-mono" id="previewFileName">damage_sample.jpg</strong>
+                  <span id="previewMediaBadge" class="badge badge-media-image">Image</span>
+                </div>
+                <div class="text-xs text-muted" id="previewFileSize">2.4 MB</div>
+                <div style="margin-top: 6px; font-size: 0.75rem; color: var(--emerald-dark); font-weight: 600;">
+                  ✓ Resolution Valid &bull; Ready for YOLO11 Object Detection
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: flex-end; margin-top: 1.5rem;">
+            <button type="button" class="btn btn-primary" id="btnToStep2" disabled>
+              <span>Next: Location Intelligence</span>
+              <i data-lucide="arrow-right"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- STEP 2 PANE: LOCATION INTELLIGENCE -->
+        <div id="wizardPaneStep2" class="wizard-pane hidden">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
+            <div>
+              <h3 style="font-size: 1rem; font-weight: 700;">Location & Geolocation Intelligence</h3>
+              <p class="text-xs text-muted">Capture current GPS coordinates or use the verified smart city demo location.</p>
+            </div>
+            <div style="display: flex; gap: 0.4rem;">
+              <button type="button" class="btn btn-secondary btn-sm" id="btnAcquireGps">
+                <i data-lucide="crosshair"></i>
+                <span>Use Current Location</span>
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" id="btnUseDemoGps">
+                <i data-lucide="zap"></i>
+                <span>Demo Location</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="grid grid-2" style="margin-bottom: 0.85rem;">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">Road / Street Name</label>
+              <input type="text" class="form-control" id="inputRoadName" value="100 Feet Road, Indiranagar" />
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">Ward / Municipal Sector</label>
+              <input type="text" class="form-control" id="inputWard" value="Ward 80 - Hoysala Nagar" />
+            </div>
+          </div>
+
+          <div class="grid grid-2" style="margin-bottom: 1rem;">
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">Prominent Landmark</label>
+              <input type="text" class="form-control" id="inputLandmark" value="Opposite Metro Pillar 84, near 12th Main" />
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+              <label class="form-label">
+                GPS Coordinates 
+                <span id="locSourceBadge" class="demo-honesty-tag" style="margin-left: 0.35rem;">Demo Location</span>
+              </label>
+              <input type="text" class="form-control font-mono" id="inputCoords" readonly value="12.9784, 77.6408" />
+            </div>
+          </div>
+
+          <!-- SMARTPHONE SENSORS TELEMETRY (Accelerometer, Gyroscope, GPS) -->
+          <div class="sensor-telemetry-box" style="background: var(--bg-surface); border: 1px solid var(--border-medium); border-radius: var(--radius-md); padding: 0.9rem 1rem; margin-bottom: 1rem; box-shadow: var(--shadow-sm);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+              <div style="display: flex; align-items: center; gap: 0.45rem;">
+                <i data-lucide="smartphone" style="width: 1.1rem; height: 1.1rem; color: var(--cyan-primary);"></i>
+                <span style="font-weight: 700; font-size: 0.88rem; color: var(--text-primary);">Smartphone Sensors Telemetry</span>
+                <span class="demo-honesty-tag" style="font-size: 0.65rem;">Hardware Web APIs</span>
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" id="btnRequestSensorPerm" style="font-size: 0.74rem; padding: 0.3rem 0.65rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.35rem;">
+                <i data-lucide="shield-check" style="width: 0.85rem; height: 0.85rem;"></i>
+                <span>Enable Motion Sensors</span>
+              </button>
+            </div>
+
+            <div class="grid grid-3" style="gap: 0.65rem;">
+              <!-- 1. Accelerometer -->
+              <div style="background: var(--bg-secondary); border-radius: var(--radius-sm); padding: 0.65rem 0.75rem; border: 1px solid var(--border-light);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                  <span style="font-weight: 700; font-size: 0.78rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.3rem;">
+                    <i data-lucide="activity" style="width: 0.85rem; height: 0.85rem; color: var(--amber-primary);"></i>
+                    Accelerometer
+                  </span>
+                  <span id="sensorAccelStatusBadge" class="badge badge-status-reported" style="font-size: 0.62rem; padding: 0.15rem 0.45rem;">Checking...</span>
+                </div>
+                <div id="sensorAccelValues" class="font-mono" style="color: var(--text-muted); font-size: 0.74rem; line-height: 1.45;">
+                  Checking hardware support...
+                </div>
+              </div>
+
+              <!-- 2. Gyroscope -->
+              <div style="background: var(--bg-secondary); border-radius: var(--radius-sm); padding: 0.65rem 0.75rem; border: 1px solid var(--border-light);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                  <span style="font-weight: 700; font-size: 0.78rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.3rem;">
+                    <i data-lucide="compass" style="width: 0.85rem; height: 0.85rem; color: var(--purple-primary);"></i>
+                    Gyroscope
+                  </span>
+                  <span id="sensorGyroStatusBadge" class="badge badge-status-reported" style="font-size: 0.62rem; padding: 0.15rem 0.45rem;">Checking...</span>
+                </div>
+                <div id="sensorGyroValues" class="font-mono" style="color: var(--text-muted); font-size: 0.74rem; line-height: 1.45;">
+                  Checking hardware support...
+                </div>
+              </div>
+
+              <!-- 3. GPS -->
+              <div style="background: var(--bg-secondary); border-radius: var(--radius-sm); padding: 0.65rem 0.75rem; border: 1px solid var(--border-light);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                  <span style="font-weight: 700; font-size: 0.78rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.3rem;">
+                    <i data-lucide="navigation" style="width: 0.85rem; height: 0.85rem; color: var(--emerald-primary);"></i>
+                    GPS
+                  </span>
+                  <span id="sensorGpsStatusBadge" class="badge badge-status-resolved" style="font-size: 0.62rem; padding: 0.15rem 0.45rem;">Available</span>
+                </div>
+                <div id="sensorGpsValues" class="font-mono" style="color: var(--text-muted); font-size: 0.74rem; line-height: 1.45;">
+                  Lat: 12.97840&deg;<br>Lon: 77.64080&deg;
+                </div>
+              </div>
+            </div>
+
+            <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.5rem; display: flex; align-items: center; gap: 0.3rem;">
+              <i data-lucide="info" style="width: 0.8rem; height: 0.8rem; flex-shrink: 0;"></i>
+              <span>Live hardware telemetry. On desktop browsers without IMU sensors, status indicates "Unavailable on this device" per SIH guidelines.</span>
+            </div>
+          </div>
+
+          <!-- Leaflet Map Container -->
+          <div id="wizardLeafletMap" style="height: 220px; border-radius: var(--radius-md); border: 1px solid var(--border-medium); overflow: hidden; margin-bottom: 1rem;"></div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <button type="button" class="btn btn-secondary" id="btnBackToStep1">
+              <i data-lucide="arrow-left"></i>
+              <span>Back</span>
+            </button>
+            <button type="button" class="btn btn-primary" id="btnToStep3">
+              <span>Next: Road Context & AI Analysis</span>
+              <i data-lucide="arrow-right"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- STEP 3 PANE: CONTEXT & AI INFERENCE -->
+        <div id="wizardPaneStep3" class="wizard-pane hidden">
+          <div style="margin-bottom: 1rem;">
+            <div class="form-group">
+              <label class="form-label">Hazard Description (Optional)</label>
+              <textarea class="form-control" id="inputHazardDescription" rows="2" placeholder="e.g. Deep pothole right after traffic light, severe two-wheeler skidding risk...">Massive deep pothole right after Indiranagar 12th Main signal. Causing severe risk for two-wheelers and traffic bottleneck during evening peak hours.</textarea>
+            </div>
+
+            <div class="grid grid-2">
+              <div class="form-group">
+                <label class="form-label">Road Classification</label>
+                <select class="form-control" id="selectRoadType">
+                  <option value="ARTERIAL" selected>Major Arterial (High-Traffic Corridor)</option>
+                  <option value="HIGHWAY">State / National Highway Link</option>
+                  <option value="COLLECTOR">Collector / Sub-Arterial Road</option>
+                  <option value="LOCAL">Local Residential Street</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Traffic Exposure</label>
+                <select class="form-control" id="selectTrafficExposure">
+                  <option value="HIGH" selected>High (Bus Route / Peak Transit)</option>
+                  <option value="MEDIUM">Moderate (Regular Local Traffic)</option>
+                  <option value="LOW">Low (Calm Residential)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Nearby Sensitive Infrastructure (Select all that apply)</label>
+              <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; font-size: 0.8rem;">
+                <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
+                  <input type="checkbox" id="chkSchool" checked /> 🏫 School / College Zone
+                </label>
+                <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
+                  <input type="checkbox" id="chkHospital" checked /> 🏥 Hospital Transit Route
+                </label>
+                <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
+                  <input type="checkbox" id="chkTransit" checked /> 🚇 Metro / Bus Interchange
+                </label>
+                <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
+                  <input type="checkbox" id="chkWaterlogging" /> 🌧️ Waterlogging Prone Zone
+                </label>
+              </div>
+            </div>
+
+            <button type="button" class="btn btn-emerald btn-lg" id="btnRunAiScan" style="width: 100%;">
+              <i data-lucide="scan"></i>
+              <span>Run YOLO11 AI Analysis & Prioritization</span>
+            </button>
+          </div>
+
+          <!-- AI SCANNING LOADING OVERLAY -->
+          <div id="aiScanLoadingOverlay" class="hidden" style="padding: 2.5rem 1rem; text-align: center; background: #090e17; border-radius: var(--radius-md); color: #ffffff; margin-bottom: 1rem; position: relative; overflow: hidden;">
+            <div class="ai-scan-laser"></div>
+            <div class="ai-scan-grid"></div>
+            <div style="position: relative; z-index: 2;">
+              <div style="width: 48px; height: 48px; border-radius: 50%; border: 3px solid rgba(6, 182, 212, 0.2); border-top-color: #00e5ff; margin: 0 auto 1rem auto; animation: spin 0.8s linear infinite;"></div>
+              <div style="font-family: var(--font-display); font-size: 1.3rem; font-weight: 800; color: #ffffff;" id="aiScanProgressText">
+                Executing YOLO11 Neural Network Inference...
+              </div>
+              <div class="text-xs text-muted" style="margin: 0.5rem 0 1rem 0;">
+                Extracting bounding boxes, class labels, and spatial severity index
+              </div>
+              <div style="max-width: 320px; height: 6px; background: rgba(255, 255, 255, 0.1); border-radius: 9999px; margin: 0 auto; overflow: hidden;">
+                <div id="aiScanProgressBar" style="width: 25%; height: 100%; background: #06b6d4; transition: width 0.25s ease;"></div>
+              </div>
+            </div>
+          </div>
+          <style>
+            @keyframes spin { to { transform: rotate(360deg); } }
+          </style>
+
+          <!-- AI RESULT CARD (SHOWN AFTER SCAN) -->
+          <div id="aiResultCard" class="hidden" style="margin-top: 1.25rem;">
+            <div style="display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 1.25rem;">
+              
+              <!-- Evidence Display (Canvas or Video) -->
+              <div>
+                <div class="canvas-preview-wrapper">
+                  <canvas id="resultYoloCanvas"></canvas>
+                  <video id="resultVideoPlayer" controls class="hidden" style="width: 100%; height: auto; max-height: 280px;"></video>
+                </div>
+                <div id="resultVideoSummary" class="hidden" style="margin-top: 0.5rem;"></div>
+              </div>
+
+              <!-- Priority Intelligence -->
+              <div>
+                <div class="priority-hero-box">
+                  <div class="priority-hero-left">
+                    <span class="priority-hero-title">Priority Index</span>
+                    <div class="priority-hero-score-val">
+                      <span id="valPriorityScore" style="color: #ffffff; font-size: 3rem;">92</span>
+                      <span>/ 100</span>
+                    </div>
+                  </div>
+                  <div style="text-align: right;">
+                    <span id="valPriorityLevel" class="badge badge-priority-critical">CRITICAL PRIORITY</span>
+                    <div style="font-size: 0.68rem; color: #94a3b8; margin-top: 0.35rem;">Top Maintenance Queue</div>
+                  </div>
+                </div>
+
+                <div style="background: var(--bg-subtle); border: 1px solid var(--border-light); border-radius: 8px; padding: 0.85rem; margin-bottom: 0.85rem;">
+                  <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 4px;">
+                    <span>Damage Detected: <strong id="valDamageType">POTHOLE</strong></span>
+                    <span>Confidence: <strong id="valConfidence" style="color: var(--status-resolved);">94%</strong></span>
+                  </div>
+                  <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 6px;">
+                    <span>Severity: <span id="valSeverity" class="badge badge-priority-critical">CRITICAL</span></span>
+                    <span>Model: <strong class="font-mono text-xs">YOLO11</strong></span>
+                  </div>
+                  <div style="font-size: 0.72rem; color: var(--text-secondary); line-height: 1.4;" id="valRationale">
+                    Severe pothole detection (depth risk) on arterial high-volume corridor near metro station.
+                  </div>
+                </div>
+
+                <!-- 6 Factor Bars -->
+                <div style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px;">
+                  Prototype Explainable Priority Model (Weights):
+                </div>
+
+                <div class="factor-bar-row">
+                  <div class="factor-bar-labels">
+                    <span>1. Damage Severity (30%)</span>
+                    <span id="barSeverityLabel" class="font-mono">28/30</span>
+                  </div>
+                  <div class="factor-bar-track"><div id="barSeverity" class="factor-bar-fill" style="width: 93%;"></div></div>
+                </div>
+
+                <div class="factor-bar-row">
+                  <div class="factor-bar-labels">
+                    <span>2. Damage Extent (20%)</span>
+                    <span id="barExtentLabel" class="font-mono">18/20</span>
+                  </div>
+                  <div class="factor-bar-track"><div id="barExtent" class="factor-bar-fill" style="width: 90%;"></div></div>
+                </div>
+
+                <div class="factor-bar-row">
+                  <div class="factor-bar-labels">
+                    <span>3. Road Importance (20%)</span>
+                    <span id="barRoadLabel" class="font-mono">18/20</span>
+                  </div>
+                  <div class="factor-bar-track"><div id="barRoad" class="factor-bar-fill" style="width: 90%;"></div></div>
+                </div>
+
+                <div class="factor-bar-row">
+                  <div class="factor-bar-labels">
+                    <span>4. Traffic Exposure (10%)</span>
+                    <span id="barTrafficLabel" class="font-mono">9/10</span>
+                  </div>
+                  <div class="factor-bar-track"><div id="barTraffic" class="factor-bar-fill" style="width: 90%;"></div></div>
+                </div>
+
+                <div class="factor-bar-row">
+                  <div class="factor-bar-labels">
+                    <span>5. Sensitive Zone Risk (10%)</span>
+                    <span id="barSensitiveLabel" class="font-mono">10/10</span>
+                  </div>
+                  <div class="factor-bar-track"><div id="barSensitive" class="factor-bar-fill" style="width: 100%;"></div></div>
+                </div>
+
+                <div class="factor-bar-row">
+                  <div class="factor-bar-labels">
+                    <span>6. Corroborating Evidence (10%)</span>
+                    <span id="barCorroborationLabel" class="font-mono">9/10</span>
+                  </div>
+                  <div class="factor-bar-track"><div id="barCorroboration" class="factor-bar-fill" style="width: 90%;"></div></div>
+                </div>
+
+              </div>
+            </div>
+
+            <!-- Submit CTA -->
+            <div style="margin-top: 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+              <button type="button" class="btn btn-secondary" id="btnBackToStep2">
+                <i data-lucide="arrow-left"></i>
+                <span>Back</span>
+              </button>
+              <button type="button" class="btn btn-primary btn-lg" id="btnSubmitReport">
+                <i data-lucide="send"></i>
+                <span>Submit Road Damage Report</span>
+              </button>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODAL 2: SUBMISSION SUCCESS ================= -->
+  <div class="modal-backdrop" id="successModal">
+    <div class="modal-card" style="text-align: center; padding: 2.5rem 2rem;">
+      <div style="width: 60px; height: 60px; border-radius: 50%; background: #ecfdf5; color: #10b981; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.25rem auto;">
+        <i data-lucide="check-circle" style="width: 36px; height: 36px;"></i>
+      </div>
+
+      <span class="badge badge-status-resolved" style="margin-bottom: 0.5rem;">Complaint Registered</span>
+      <h2 style="font-family: var(--font-display); font-size: 1.8rem; font-weight: 900; margin-bottom: 0.25rem;">
+        Report Submitted Successfully!
+      </h2>
+      <p class="text-sm text-muted" style="margin-bottom: 1.5rem;">
+        Your report has been prioritized and routed to the municipal road maintenance queue.
+      </p>
+
+      <div class="card" style="background: var(--bg-subtle); padding: 1.25rem; margin-bottom: 1.75rem; text-align: left;">
+        <div style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Official Tracking ID</div>
+        <div id="successComplaintId" class="font-mono font-bold" style="font-size: 1.5rem; color: var(--cyan-dark); margin: 0.25rem 0 0.75rem 0;">MD-2026-0001</div>
+        <div id="successDetailsSummary" style="font-size: 0.8rem; line-height: 1.6; color: var(--text-secondary);">
+          <!-- Dynamic details -->
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 0.75rem; justify-content: center;">
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('successModal').classList.remove('active')">
+          <span>Back to Dashboard</span>
+        </button>
+        <button type="button" class="btn btn-primary" id="btnSuccessTrack">
+          <i data-lucide="crosshair"></i>
+          <span>Track Complaint Progress</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODAL 3: COMPLAINT TRACKING ================= -->
+  <div class="modal-backdrop" id="trackingModal">
+    <div class="modal-card modal-lg">
+      <button class="modal-close-btn" onclick="closeTrackingModal()" aria-label="Close modal">
+        <i data-lucide="x"></i>
+      </button>
+
+      <div class="card-header">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <div class="card-title font-mono" id="trackModalComplaintId">MD-2026-0001</div>
+          <span id="trackModalStatusBadge" class="badge badge-status-assigned">Assigned</span>
+        </div>
+        <span class="demo-honesty-tag">Live State Sync</span>
+      </div>
+
+      <div class="card-body">
+        <!-- Meta Details -->
+        <div id="trackModalMeta" class="grid grid-2" style="font-size: 0.82rem; margin-bottom: 1.5rem; background: var(--bg-subtle); padding: 1rem; border-radius: 8px; border: 1px solid var(--border-light);">
+          <!-- Injected via citizenApp.js -->
+        </div>
+
+        <!-- 6-Stage Timeline Stepper -->
+        <h3 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.4rem;">
+          <i data-lucide="git-commit" style="width: 16px; height: 16px; color: var(--cyan-dark);"></i>
+          <span>Maintenance Progression Timeline</span>
+        </h3>
+        <div id="trackModalTimeline" class="timeline-stepper">
+          <!-- Injected via citizenApp.js -->
+        </div>
+
+        <!-- Post-Repair Monitoring Status Card -->
+        <div id="trackModalMonitoringCard" class="card hidden" style="margin-top: 1.5rem;">
+          <!-- Injected dynamically via citizenApp.js -->
+        </div>
+
+        <!-- Before & After Repair Evidence (Visible when RESOLVED) -->
+        <div id="trackModalRepairProof" class="card hidden" style="margin-top: 1.5rem;">
+          <!-- Injected via citizenApp.js -->
+        </div>
+      </div>
+
+      <div class="card-footer">
+        <span class="text-xs text-muted font-mono">Synced with Municipal Dispatch Console</span>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="closeTrackingModal()">Close Tracker</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container"></div>
+
+  <script type="module" src="js/i18n.js"></script>
+  <script type="module" src="js/aiChatbot.js"></script>
+  <script type="module" src="js/citizenApp.js"></script>
+</body>
+</html>
