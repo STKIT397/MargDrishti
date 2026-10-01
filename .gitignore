@@ -1,0 +1,46 @@
+# Operating System Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Environment & Secrets
+.env
+.env.local
+*.pem
+*.key
+
+# Dependencies & Build Artefacts
+node_modules/
+dist/
+build/
+*.log
+
+# Python & Deep Learning
+__pycache__/
+*.py[cod]
+*$py.class
+*.pt
+*.pth
+*.onnx
+*.engine
+runs/
+margdrishti_runs/
+dataset/
+*.mp4
+*.webm
+
+# Java & Spring Boot (Future)
+target/
+*.class
+.mvn/
+mvnw
+mvnw.cmd
+
+# IDE Specific
+.idea/
+.vscode/
+*.swp
+*.swo
+.project
+.classpath
+.settings/

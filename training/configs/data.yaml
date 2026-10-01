@@ -1,0 +1,14 @@
+# MargDrishti YOLO11 Road Damage Dataset Configuration
+# Based on Road Damage Dataset (RDD2022) Indian Subset
+
+path: ../dataset
+train: images/train
+val: images/val
+test: images/test
+
+# 4 Operational Civic Road Defect Classes
+names:
+  0: Pothole
+  1: Longitudinal Crack
+  2: Transverse Crack
+  3: Alligator Crack
