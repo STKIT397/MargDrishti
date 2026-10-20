@@ -503,10 +503,27 @@
               </div>
             </div>
 
-            <button type="button" class="btn btn-emerald btn-lg" id="btnRunAiScan" style="width: 100%;">
-              <i data-lucide="scan"></i>
-              <span>Run YOLO11 AI Analysis & Prioritization</span>
-            </button>
+            <div style="display: flex; gap: 0.75rem; align-items: center; margin-top: 1rem;">
+              <button type="button" class="btn btn-secondary btn-back-to-step2" id="btnBackToStep2Form" style="white-space: nowrap;">
+                <i data-lucide="arrow-left"></i>
+                <span>Back</span>
+              </button>
+              <button type="button" class="btn btn-emerald btn-lg" id="btnRunAiScan" style="flex: 1;">
+                <i data-lucide="scan"></i>
+                <span>Run YOLO11 AI Analysis & Prioritization</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- AI SCAN ERROR STATE -->
+          <div id="aiScanErrorBox" class="hidden" style="margin-bottom: 1rem; padding: 1rem; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: var(--radius-md); color: #fca5a5; font-size: 0.82rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;">
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <i data-lucide="alert-triangle" style="color: #ef4444; width: 18px; height: 18px;"></i>
+                <span id="aiScanErrorMessage">Inference error occurred.</span>
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" id="btnRetryAiScan">Retry Analysis</button>
+            </div>
           </div>
 
           <!-- AI SCANNING LOADING OVERLAY -->
@@ -566,7 +583,7 @@
                   </div>
                   <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 6px;">
                     <span>Severity: <span id="valSeverity" class="badge badge-priority-critical">CRITICAL</span></span>
-                    <span>Model: <strong class="font-mono text-xs">YOLO11</strong></span>
+                    <span>Model: <strong id="valModelName" class="font-mono text-xs">YOLO11 (best (1).pt)</strong></span>
                   </div>
                   <div style="font-size: 0.72rem; color: var(--text-secondary); line-height: 1.4;" id="valRationale">
                     Severe pothole detection (depth risk) on arterial high-volume corridor near metro station.
@@ -575,7 +592,7 @@
 
                 <!-- 6 Factor Bars -->
                 <div style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px;">
-                  Prototype Explainable Priority Model (Weights):
+                  Explainable Priority Model (Weights Sum: 100%):
                 </div>
 
                 <div class="factor-bar-row">

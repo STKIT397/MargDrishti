@@ -285,14 +285,21 @@ function initWizardEvents() {
   const btnBackToStep1 = document.getElementById('btnBackToStep1');
   const btnToStep3 = document.getElementById('btnToStep3');
   const btnBackToStep2 = document.getElementById('btnBackToStep2');
+  const btnBackToStep2Form = document.getElementById('btnBackToStep2Form');
   const btnRunAiScan = document.getElementById('btnRunAiScan');
+  const btnRetryAiScan = document.getElementById('btnRetryAiScan');
   const btnSubmitReport = document.getElementById('btnSubmitReport');
 
   if (btnToStep2) btnToStep2.addEventListener('click', () => goToStep(2));
   if (btnBackToStep1) btnBackToStep1.addEventListener('click', () => goToStep(1));
   if (btnToStep3) btnToStep3.addEventListener('click', () => goToStep(3));
   if (btnBackToStep2) btnBackToStep2.addEventListener('click', () => goToStep(2));
+  if (btnBackToStep2Form) btnBackToStep2Form.addEventListener('click', () => goToStep(2));
+  document.querySelectorAll('.btn-back-to-step2').forEach(btn => {
+    btn.addEventListener('click', () => goToStep(2));
+  });
   if (btnRunAiScan) btnRunAiScan.addEventListener('click', executeAiScan);
+  if (btnRetryAiScan) btnRetryAiScan.addEventListener('click', executeAiScan);
   if (btnSubmitReport) btnSubmitReport.addEventListener('click', submitComplaint);
 
   // GPS Acquisition Buttons
@@ -592,6 +599,20 @@ function handleFileSelect(file) {
 }
 
 function loadMediaPreview(url, fileName, fileSize, videoDetails = null, damageTypeHint = 'POTHOLE') {
+  // If evidence changed, invalidate any previous AI inference results
+  if (activeMediaUrl && activeMediaUrl !== url) {
+    activeAiResult = null;
+    activePriority = null;
+    const resultCard = document.getElementById('aiResultCard');
+    const errorBox = document.getElementById('aiScanErrorBox');
+    const btnSubmit = document.getElementById('btnSubmitReport');
+    const btnRun = document.getElementById('btnRunAiScan');
+    if (resultCard) resultCard.classList.add('hidden');
+    if (errorBox) errorBox.classList.add('hidden');
+    if (btnSubmit) btnSubmit.disabled = true;
+    if (btnRun) btnRun.disabled = false;
+  }
+
   activeMediaUrl = url;
   activeVideoDetails = videoDetails;
   
@@ -660,6 +681,23 @@ function goToStep(stepNum) {
       initStep2Map();
     }, 150);
   }
+
+  if (stepNum === 3) {
+    // If active AI results already exist and evidence was not changed, keep results visible
+    const resultCard = document.getElementById('aiResultCard');
+    const btnSubmit = document.getElementById('btnSubmitReport');
+    const btnRun = document.getElementById('btnRunAiScan');
+    if (activeAiResult && activePriority) {
+      if (resultCard) resultCard.classList.remove('hidden');
+      if (btnSubmit) btnSubmit.disabled = false;
+      renderAiResults();
+    } else {
+      if (resultCard) resultCard.classList.add('hidden');
+      if (btnSubmit) btnSubmit.disabled = true;
+    }
+  }
+
+  if (window.lucide) window.lucide.createIcons();
 }
 
 function applyLocationToForm(loc) {
@@ -710,6 +748,7 @@ function initStep2Map() {
 async function executeAiScan() {
   const loadingOverlay = document.getElementById('aiScanLoadingOverlay');
   const resultCard = document.getElementById('aiResultCard');
+  const errorBox = document.getElementById('aiScanErrorBox');
   const progressText = document.getElementById('aiScanProgressText');
   const progressBar = document.getElementById('aiScanProgressBar');
   const btnRunAiScan = document.getElementById('btnRunAiScan');
@@ -717,52 +756,69 @@ async function executeAiScan() {
 
   if (loadingOverlay) loadingOverlay.classList.remove('hidden');
   if (resultCard) resultCard.classList.add('hidden');
+  if (errorBox) errorBox.classList.add('hidden');
   if (btnRunAiScan) btnRunAiScan.disabled = true;
 
-  const previewBox = document.getElementById('wizardMediaPreview');
-  const hintType = previewBox?.dataset.hintType || 'POTHOLE';
+  try {
+    const previewBox = document.getElementById('wizardMediaPreview');
+    const hintType = previewBox?.dataset.hintType || 'POTHOLE';
 
-  // Road context selections
-  const roadType = document.getElementById('selectRoadType')?.value || 'ARTERIAL';
-  const trafficExp = document.getElementById('selectTrafficExposure')?.value || 'HIGH';
-  const sensitiveList = [];
-  if (document.getElementById('chkSchool')?.checked) sensitiveList.push('SCHOOL');
-  if (document.getElementById('chkHospital')?.checked) sensitiveList.push('HOSPITAL');
-  if (document.getElementById('chkTransit')?.checked) sensitiveList.push('TRANSIT');
-  if (document.getElementById('chkWaterlogging')?.checked) sensitiveList.push('WATERLOGGING');
+    // Road context selections
+    const roadType = document.getElementById('selectRoadType')?.value || 'ARTERIAL';
+    const trafficExp = document.getElementById('selectTrafficExposure')?.value || 'HIGH';
+    const sensitiveList = [];
+    if (document.getElementById('chkSchool')?.checked) sensitiveList.push('SCHOOL');
+    if (document.getElementById('chkHospital')?.checked) sensitiveList.push('HOSPITAL');
+    if (document.getElementById('chkTransit')?.checked) sensitiveList.push('TRANSIT');
+    if (document.getElementById('chkWaterlogging')?.checked) sensitiveList.push('WATERLOGGING');
 
-  // AI Inference simulation with progress callback
-  if (selectedMediaType === 'video') {
-    activeAiResult = await AiService.analyzeVideo(activeMediaUrl, { damageType: hintType }, (p) => {
-      if (progressText) progressText.textContent = p.message;
-      if (progressBar) progressBar.style.width = `${((p.stageIndex + 1) / p.totalStages) * 100}%`;
+    if (selectedMediaType === 'video') {
+      activeAiResult = await AiService.analyzeVideo(activeMediaUrl, { damageType: hintType }, (p) => {
+        if (progressText) progressText.textContent = p.message;
+        if (progressBar) progressBar.style.width = `${((p.stageIndex + 1) / p.totalStages) * 100}%`;
+      });
+    } else {
+      activeAiResult = await AiService.analyzeImage(activeMediaUrl, { damageType: hintType }, (p) => {
+        if (progressText) progressText.textContent = p.message;
+        if (progressBar) progressBar.style.width = `${((p.stageIndex + 1) / p.totalStages) * 100}%`;
+      });
+    }
+
+    // Calculate Explainable Priority Score from actual real detection results
+    activePriority = PriorityEngine.calculatePriority({
+      damageType: activeAiResult.damageType,
+      severity: activeAiResult.severity,
+      confidence: activeAiResult.confidence,
+      detections: activeAiResult.detections,
+      detectionCount: activeAiResult.detectionCount,
+      surfaceDamageAreaPct: activeAiResult.surfaceDamageAreaPct,
+      mediaType: selectedMediaType,
+      roadType,
+      trafficExposure: trafficExp,
+      sensitiveZones: sensitiveList,
+      corroboratingCount: 4
     });
-  } else {
-    activeAiResult = await AiService.analyzeImage(activeMediaUrl, { damageType: hintType }, (p) => {
-      if (progressText) progressText.textContent = p.message;
-      if (progressBar) progressBar.style.width = `${((p.stageIndex + 1) / p.totalStages) * 100}%`;
-    });
+
+    // Hide loading, show results
+    if (loadingOverlay) loadingOverlay.classList.add('hidden');
+    if (resultCard) resultCard.classList.remove('hidden');
+    if (btnSubmitReport) btnSubmitReport.disabled = false;
+    if (btnRunAiScan) btnRunAiScan.disabled = false;
+
+    renderAiResults();
+    if (window.lucide) window.lucide.createIcons();
+  } catch (err) {
+    console.error('[AI Scan Execution Error]:', err);
+    if (loadingOverlay) loadingOverlay.classList.add('hidden');
+    if (errorBox) {
+      errorBox.classList.remove('hidden');
+      const msg = document.getElementById('aiScanErrorMessage');
+      if (msg) msg.textContent = err.message || 'AI inference failed. Please try again.';
+    }
+    if (btnRunAiScan) btnRunAiScan.disabled = false;
+    if (btnSubmitReport) btnSubmitReport.disabled = true;
+    showToast('AI Inference Error', err.message || 'Unable to complete damage detection.');
   }
-
-  // Calculate Explainable Priority Score
-  activePriority = PriorityEngine.calculatePriority({
-    damageType: activeAiResult.damageType,
-    severity: activeAiResult.severity,
-    confidence: activeAiResult.confidence,
-    detectionCount: activeAiResult.detections.length,
-    mediaType: selectedMediaType,
-    roadType,
-    trafficExposure: trafficExp,
-    sensitiveZones: sensitiveList,
-    corroboratingCount: 4
-  });
-
-  // Hide loading, show results
-  if (loadingOverlay) loadingOverlay.classList.add('hidden');
-  if (resultCard) resultCard.classList.remove('hidden');
-  if (btnSubmitReport) btnSubmitReport.disabled = false;
-
-  renderAiResults();
 }
 
 function renderAiResults() {
@@ -805,32 +861,59 @@ function renderAiResults() {
   const damageTypeEl = document.getElementById('valDamageType');
   const confEl = document.getElementById('valConfidence');
   const sevEl = document.getElementById('valSeverity');
+  const modelEl = document.getElementById('valModelName');
   const prioScoreEl = document.getElementById('valPriorityScore');
   const prioLevelEl = document.getElementById('valPriorityLevel');
   const rationaleEl = document.getElementById('valRationale');
 
-  if (damageTypeEl) damageTypeEl.textContent = activeAiResult.damageType;
-  if (confEl) confEl.textContent = `${Math.round(activeAiResult.confidence * 100)}%`;
+  if (damageTypeEl) {
+    damageTypeEl.textContent = activeAiResult.damageType === 'NO_DAMAGE_DETECTED'
+      ? 'NO ROAD DEFECT DETECTED'
+      : activeAiResult.damageType.replace(/_/g, ' ');
+  }
+  if (confEl) {
+    if (activeAiResult.confidence > 0) {
+      confEl.textContent = `${Math.round(activeAiResult.confidence * 100)}%`;
+      confEl.style.color = 'var(--status-resolved)';
+    } else {
+      confEl.textContent = 'N/A (0 defects)';
+      confEl.style.color = 'var(--text-muted)';
+    }
+  }
   if (sevEl) {
     sevEl.textContent = activeAiResult.severity;
-    sevEl.className = `badge ${activeAiResult.severity === 'CRITICAL' ? 'badge-priority-critical' : 'badge-priority-high'}`;
+    sevEl.className = `badge ${
+      activeAiResult.severity === 'CRITICAL' ? 'badge-priority-critical' :
+      activeAiResult.severity === 'HIGH' ? 'badge-priority-high' :
+      activeAiResult.severity === 'MEDIUM' ? 'badge-priority-medium' :
+      'badge-priority-low'
+    }`;
+  }
+  if (modelEl) {
+    modelEl.textContent = activeAiResult.modelLabel || 'YOLO11 (best (1).pt)';
   }
 
   if (prioScoreEl) prioScoreEl.textContent = activePriority.score;
   if (prioLevelEl) {
     prioLevelEl.textContent = `${activePriority.level} PRIORITY`;
-    prioLevelEl.className = `badge ${activePriority.score >= 80 ? 'badge-priority-critical' : 'badge-priority-high'}`;
+    prioLevelEl.className = `badge ${
+      activePriority.score >= 80 ? 'badge-priority-critical' :
+      activePriority.score >= 60 ? 'badge-priority-high' :
+      activePriority.score >= 40 ? 'badge-priority-medium' :
+      'badge-priority-low'
+    }`;
   }
   if (rationaleEl) rationaleEl.textContent = activePriority.rationale;
 
   // 3. Priority Factor Progress Bars
   const b = activePriority.breakdown;
-  setBarWidth('barSeverity', (b.damageSeverity / 30) * 100, `${b.damageSeverity}/30`);
-  setBarWidth('barExtent', (b.damageExtent / 20) * 100, `${b.damageExtent}/20`);
-  setBarWidth('barRoad', (b.roadImportance / 20) * 100, `${b.roadImportance}/20`);
-  setBarWidth('barTraffic', (b.trafficExposure / 10) * 100, `${b.trafficExposure}/10`);
-  setBarWidth('barSensitive', (b.sensitiveLocation / 10) * 100, `${b.sensitiveLocation}/10`);
-  setBarWidth('barCorroboration', (b.corroboratingEvidence / 10) * 100, `${b.corroboratingEvidence}/10`);
+  const f = b.factors || {};
+  setBarWidth('barSeverity', (b.damageSeverity / 30) * 100, `${b.damageSeverity}/30 (${f.damageSeverity?.score ?? Math.round((b.damageSeverity / 30) * 100)}/100)`);
+  setBarWidth('barExtent', (b.damageExtent / 20) * 100, `${b.damageExtent}/20 (${f.damageExtent?.score ?? Math.round((b.damageExtent / 20) * 100)}/100)`);
+  setBarWidth('barRoad', (b.roadImportance / 20) * 100, `${b.roadImportance}/20 (${f.roadImportance?.score ?? Math.round((b.roadImportance / 20) * 100)}/100)`);
+  setBarWidth('barTraffic', (b.trafficExposure / 10) * 100, `${b.trafficExposure}/10 (${f.trafficExposure?.score ?? Math.round((b.trafficExposure / 10) * 100)}/100)`);
+  setBarWidth('barSensitive', (b.sensitiveLocation / 10) * 100, `${b.sensitiveLocation}/10 (${f.sensitiveLocation?.score ?? Math.round((b.sensitiveLocation / 10) * 100)}/100)`);
+  setBarWidth('barCorroboration', (b.corroboratingEvidence / 10) * 100, `${b.corroboratingEvidence}/10 (${f.corroboratingEvidence?.score ?? Math.round((b.corroboratingEvidence / 10) * 100)}/100)`);
 }
 
 function setBarWidth(id, pct, label) {

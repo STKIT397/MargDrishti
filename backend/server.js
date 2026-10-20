@@ -1,20 +1,22 @@
-require("dotenv").config();
+const path = require("path");
+require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 const express = require("express");
 const pool = require("./db");
 const cors = require("cors");
 const crypto = require("crypto");
+const { spawn } = require("child_process");
 
 const app = express();
 
-const path = require("path");
-
 app.use(cors());
-app.use(express.json({ limit: "5mb" }));
+app.use(express.json({ limit: "25mb" }));
+app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 
 // Serve frontend static files
 const frontendDir = path.join(__dirname, "../Prototye_MardDrishti");
 app.use(express.static(frontendDir));
+app.use(express.static(path.join(__dirname, "../frontend")));
 
 // Helper to generate IDs within 30 characters
 function generateComplaintId() {
@@ -24,10 +26,132 @@ function generateComplaintId() {
 }
 
 // -------------------------------------------------------------
+// YOLO11 Python Inference Service Management
+// -------------------------------------------------------------
+const YOLO_SERVICE_PORT = process.env.YOLO_PORT || 5001;
+const YOLO_SERVICE_URL = process.env.YOLO_SERVICE_URL || `http://127.0.0.1:${YOLO_SERVICE_PORT}`;
+let yoloChildProcess = null;
+
+function ensureYoloService() {
+  fetch(`${YOLO_SERVICE_URL}/health`, { signal: AbortSignal.timeout(1500) })
+    .then((res) => {
+      if (res.ok) {
+        console.log(`[YOLO11 Service] Connected to existing service at ${YOLO_SERVICE_URL}`);
+      }
+    })
+    .catch(() => {
+      console.log(`[YOLO11 Service] Spawning Python inference service on port ${YOLO_SERVICE_PORT}...`);
+      const pyScript = path.join(__dirname, "yolo_service.py");
+      const pyExe = process.env.PYTHON_PATH || "python";
+      yoloChildProcess = spawn(pyExe, [pyScript], {
+        cwd: path.join(__dirname, ".."),
+        stdio: "inherit",
+        detached: false
+      });
+      yoloChildProcess.on("error", (err) => {
+        console.error("[YOLO11 Service] Failed to spawn Python process:", err.message);
+      });
+      yoloChildProcess.on("exit", (code, signal) => {
+        console.log(`[YOLO11 Service] Process exited (code: ${code}, signal: ${signal})`);
+        yoloChildProcess = null;
+      });
+    });
+}
+
+// Start YOLO inference service alongside backend
+ensureYoloService();
+
+process.on("exit", () => {
+  if (yoloChildProcess) {
+    try { yoloChildProcess.kill(); } catch (_) {}
+  }
+});
+process.on("SIGINT", () => {
+  if (yoloChildProcess) {
+    try { yoloChildProcess.kill(); } catch (_) {}
+  }
+  process.exit();
+});
+
+// -------------------------------------------------------------
 // Root & Health Checks
 // -------------------------------------------------------------
 app.get("/api", (req, res) => {
   res.json({ message: "MargDrishti backend is running" });
+});
+
+app.get("/api/ai/health", async (req, res) => {
+  try {
+    const response = await fetch(`${YOLO_SERVICE_URL}/health`, { signal: AbortSignal.timeout(3000) });
+    const data = await response.json();
+    return res.json(data);
+  } catch (err) {
+    return res.status(503).json({
+      status: "unavailable",
+      error: "YOLO11 Python inference service is offline or initializing.",
+      details: err.message
+    });
+  }
+});
+
+app.post("/api/ai/analyze", async (req, res) => {
+  const { image, mediaType, options } = req.body;
+  if (!image) {
+    return res.status(400).json({ success: false, error: "Image is required for AI analysis." });
+  }
+
+  // Handle video evidence: preserve video sampler demo behavior
+  if (mediaType === "video") {
+    return res.json({
+      success: true,
+      mediaType: "video",
+      damageType: options?.damageType || "POTHOLE",
+      severity: "HIGH",
+      confidence: 0.91,
+      videoDetails: {
+        duration: options?.duration || "00:14",
+        framesAnalyzed: 12,
+        framesWithDetections: 4,
+        highestConfidence: 0.91,
+        evidenceTimestamp: "00:08"
+      },
+      detections: [
+        { className: options?.damageType === "CRACK" ? "crack" : "pothole", confidence: 0.91, bbox: [0.24, 0.36, 0.45, 0.38] }
+      ],
+      inferenceTimeMs: 480,
+      modelVersion: "YOLO11-RDD2022-VideoSampler",
+      modelLabel: "Video Analysis Demo (Sampled Frame Aggregation)",
+      inferenceSource: "VIDEO_SAMPLER_DEMO"
+    });
+  }
+
+  // Handle photo evidence: execute real inference on trained checkpoint
+  try {
+    const yoloRes = await fetch(`${YOLO_SERVICE_URL}/predict`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        image,
+        conf: options?.conf || 0.25,
+        iou: options?.iou || 0.45
+      }),
+      signal: AbortSignal.timeout(30000)
+    });
+
+    const result = await yoloRes.json();
+    if (!yoloRes.ok) {
+      return res.status(yoloRes.status).json(result);
+    }
+    return res.json(result);
+  } catch (err) {
+    console.error("[AI Analyze Route Error]:", err.message);
+    return res.status(503).json({
+      success: false,
+      error: "Trained YOLO11 inference service is currently unavailable. Ensure the Python YOLO service is running.",
+      details: err.message,
+      status: "SERVICE_UNAVAILABLE"
+    });
+  }
 });
 
 app.get("/api/health/db", async (req, res) => {

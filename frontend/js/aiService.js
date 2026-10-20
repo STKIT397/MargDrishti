@@ -8,48 +8,82 @@ import { SAMPLE_ROAD_IMAGES } from './mockData.js';
 
 export const AiService = {
   /**
-   * Run YOLO11 Computer Vision inference on image evidence
+   * Run trained YOLO11 Computer Vision inference on image evidence
    */
   async analyzeImage(imageSrc, options = {}, onProgress = null) {
+    if (!imageSrc) {
+      throw new Error('No road damage image provided for analysis.');
+    }
+
     const stages = [
-      'Validating image resolution and EXIF data...',
-      'Preprocessing image tensors (640x640 letterbox)...',
-      'Executing YOLO11 neural network inference...',
-      'Extracting bounding boxes & class confidence scores...',
-      'Computing surface damage area and severity rating...',
-      'Synthesizing location risk and priority index...'
+      'Validating image tensor & resolution...',
+      'Transferring to YOLO11 neural network pipeline...',
+      'Executing trained Indian road defect detector (best (1).pt)...',
+      'Extracting class labels & spatial bounding boxes...',
+      'Computing surface defect area ratio & severity rating...',
+      'Finalizing detection telemetry & explainable priority inputs...'
     ];
 
     if (onProgress) {
-      for (let i = 0; i < stages.length; i++) {
-        onProgress({ stageIndex: i, totalStages: stages.length, message: stages[i] });
-        await new Promise(r => setTimeout(r, 220));
-      }
-    } else {
-      await new Promise(r => setTimeout(r, 1200));
+      onProgress({ stageIndex: 0, totalStages: stages.length, message: stages[0] });
     }
 
-    // Determine damage profile based on options or defaults
-    const damageType = options.damageType || 'POTHOLE';
-    const isPothole = damageType === 'POTHOLE';
+    // Call backend API connected to trained YOLO11 inference service
+    try {
+      if (onProgress) {
+        onProgress({ stageIndex: 1, totalStages: stages.length, message: stages[1] });
+      }
 
-    const detections = isPothole ? [
-      { className: 'pothole', confidence: 0.94, bbox: [0.22, 0.35, 0.48, 0.36] }
-    ] : [
-      { className: 'crack', confidence: 0.89, bbox: [0.15, 0.28, 0.65, 0.50] }
-    ];
+      const response = await fetch('http://localhost:5000/api/ai/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image: imageSrc,
+          mediaType: 'image',
+          options
+        })
+      });
 
-    return {
-      mediaType: 'image',
-      damageType: isPothole ? 'POTHOLE' : 'CRACK',
-      severity: isPothole ? 'HIGH' : 'MEDIUM',
-      confidence: isPothole ? 0.94 : 0.89,
-      detections,
-      inferenceTimeMs: 142,
-      modelVersion: 'YOLO11-RDD2022-IndianRoads',
-      modelLabel: 'AI Analysis Demo (YOLO11 Architecture)',
-      surfaceDamageArea: '22.4%'
-    };
+      if (onProgress) {
+        onProgress({ stageIndex: 2, totalStages: stages.length, message: stages[2] });
+      }
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok || !data || data.success === false) {
+        const errorMsg = data?.error || `AI inference service responded with status ${response.status}.`;
+        throw new Error(errorMsg);
+      }
+
+      if (onProgress) {
+        onProgress({ stageIndex: 3, totalStages: stages.length, message: stages[3] });
+        await new Promise(r => setTimeout(r, 80));
+        onProgress({ stageIndex: 4, totalStages: stages.length, message: stages[4] });
+        await new Promise(r => setTimeout(r, 80));
+        onProgress({ stageIndex: 5, totalStages: stages.length, message: stages[5] });
+      }
+
+      return {
+        mediaType: 'image',
+        damageType: data.damageType || (data.detectionCount === 0 ? 'NO_DAMAGE_DETECTED' : 'ROAD_DEFECT'),
+        severity: data.severity || 'LOW',
+        confidence: typeof data.confidence === 'number' ? data.confidence : 0,
+        detections: Array.isArray(data.detections) ? data.detections : [],
+        detectionCount: typeof data.detectionCount === 'number' ? data.detectionCount : (data.detections ? data.detections.length : 0),
+        inferenceTimeMs: data.inferenceTimeMs || 120,
+        modelVersion: data.modelVersion || 'YOLO11n-IndianRoads',
+        modelLabel: data.modelLabel || 'Trained YOLO11 Model (best (1).pt)',
+        checkpoint: data.checkpoint || 'best (1).pt',
+        inferenceSource: data.inferenceSource || 'LIVE_TRAINED_YOLO11',
+        surfaceDamageArea: data.surfaceDamageArea || '0%',
+        surfaceDamageAreaPct: typeof data.surfaceDamageAreaPct === 'number' ? data.surfaceDamageAreaPct : 0,
+        imageDimensions: data.imageDimensions || null,
+        message: data.message || null
+      };
+    } catch (err) {
+      console.error('[AiService.analyzeImage Error]:', err);
+      throw err;
+    }
   },
 
   /**
