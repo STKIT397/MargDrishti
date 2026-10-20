@@ -112,26 +112,43 @@ The intended workflow connects citizen reporting with authority review, assignme
 The exact persistence and status transitions depend on the backend and frontend flows connected in the current build.
 
 ---
+## 🏗️ Architecture
 
-## System Architecture
-
-The application uses a frontend, a Node.js/Express backend, and PostgreSQL database integration.
+The diagram below is retained as the **intended product architecture**. Some blocks represent planned capabilities and should not be read as proof that each capability is already implemented in the current prototype.
 
 ```mermaid
 flowchart TD
-    A[Citizen Dashboard] --> B[Report Road Damage]
-    B --> C[Image or Video Evidence]
-    B --> D[Location Information]
-    C --> E[Available AI Analysis Service]
-    D --> F[Complaint Information]
-    E --> F
-    F --> G[Priority Assessment]
-    G --> H[Complaint and Status Workflow]
-    H --> I[PostgreSQL Database]
-    I --> J[Authority Dashboard]
-    I --> K[Citizen Tracking]
-    J --> L[Assignment and Maintenance Actions]
-    L --> I
+    subgraph Citizens["Citizens & Commuters"]
+        U1[Smartphone Capture] --> U2[Authenticity Gate]
+        U2 --> U3[Location Confirmation]
+        U3 --> U4[YOLO11 Vision Model]
+        U4 --> U5[Explainable Priority Engine]
+        U5 --> U6[Complaint Registry CIT-2026 / MD-2026]
+    end
+
+    subgraph Platform["MargDrishti Core State Engine"]
+        U6 --> DB[(Synchronized Data Layer)]
+        DB --> W1[15-Day Assignment Lock]
+        DB --> W2[90% Resolution Cap]
+        DB --> W3[60-Day Post-Repair Monitoring]
+        DB --> R1[Pothole-Aware Routing Engine]
+    end
+
+    subgraph MunicipalAuthorities["Municipal Engineering Division"]
+        DB --> A1[Prioritized Maintenance Queue]
+        A1 --> A2[Defect Inspection & Verification]
+        A2 --> A3[Work Order Assignment]
+        A3 --> W1
+        W1 --> A4[Field Repair In Progress]
+        A4 --> W2
+        W2 --> W3
+        W3 --> A5[Authority Durability Confirmation 100%]
+    end
+
+    subgraph GISNavigation["Pothole Map & Navigation"]
+        DB --> M1[Active Pothole GIS Explorer]
+        R1 --> M2[Safest vs Fastest Route Planner]
+    end
 ```
 
 The diagram represents the intended connected workflow. It does not imply that every service, AI integration, or database-backed interaction has been independently verified in every screen.
