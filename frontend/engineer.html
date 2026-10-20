@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Engineer Workspace — MargDrishti</title>
+  <meta name="description" content="MargDrishti Engineer Workspace. Field road repair task management, progress tracking, and verified completion evidence submission.">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Leaflet GIS Map -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <link rel="stylesheet" href="css/margdrishti.css">
+  <style>
+    .task-card {
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      border: 1px solid var(--border-medium);
+      background: #ffffff;
+      border-radius: 12px;
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      position: relative;
+    }
+    .task-card:hover {
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08);
+      border-color: rgba(6, 182, 212, 0.4);
+    }
+    .progress-bar-container {
+      background: #e2e8f0;
+      border-radius: 999px;
+      height: 8px;
+      overflow: hidden;
+      width: 100%;
+    }
+    .progress-bar-fill {
+      background: linear-gradient(90deg, #0284c7, #10b981);
+      height: 100%;
+      border-radius: 999px;
+      transition: width 0.4s ease;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Ambient Light Accents -->
+  <div class="ambient-glow glow-top-cyan"></div>
+  <div class="ambient-glow glow-top-emerald"></div>
+  <div class="ambient-grid-overlay"></div>
+
+  <!-- Demo Control Bar -->
+  <div class="demo-control-bar">
+    <div class="demo-bar-left">
+      <span style="color: #94a3b8; font-size: 0.75rem;">Field Engineering Task Center & Maintenance Operations</span>
+    </div>
+    <div class="demo-bar-center">
+      <a href="index.html" class="demo-nav-link">
+        <i data-lucide="home" style="width: 14px; height: 14px;"></i>
+        <span>Home</span>
+      </a>
+      <a href="citizen.html" class="demo-nav-link">
+        <i data-lucide="user" style="width: 14px; height: 14px;"></i>
+        <span>Citizen Dashboard</span>
+      </a>
+      <a href="authority.html" class="demo-nav-link">
+        <i data-lucide="shield-check" style="width: 14px; height: 14px;"></i>
+        <span>Authority Dashboard</span>
+      </a>
+      <a href="engineer.html" class="demo-nav-link active">
+        <i data-lucide="wrench" style="width: 14px; height: 14px;"></i>
+        <span>Engineer Workspace</span>
+      </a>
+      <a href="map.html" class="demo-nav-link">
+        <i data-lucide="map" style="width: 14px; height: 14px;"></i>
+        <span>Pothole Map & Navigation</span>
+      </a>
+    </div>
+    <div class="demo-bar-right">
+      <button class="demo-btn-reset" title="Reset demo data to initial seed">
+        <i data-lucide="rotate-ccw" style="width: 12px; height: 12px;"></i>
+        <span>Reset Demo Data</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Header -->
+  <header class="site-header">
+    <div class="navbar-inner">
+      <div class="brand-wrapper">
+        <a href="index.html" style="display: flex; align-items: center; gap: 0.75rem;">
+          <div class="brand-icon-box" style="background: linear-gradient(135deg, #0284c7, #0f766e);">
+            <i data-lucide="wrench" style="color: #ffffff;"></i>
+          </div>
+          <div class="brand-titles">
+            <div class="brand-title-main">
+              MargDrishti <span class="brand-badge-ai" style="background: #0284c7;">OPS</span>
+            </div>
+            <div class="brand-subtitle-main">Field Engineer Task & Repair Workspace</div>
+          </div>
+        </a>
+      </div>
+
+      <div class="nav-actions">
+        <!-- Connected In-App Notification Bell -->
+        <div class="notification-bell-container" id="engineerNotificationBellContainer" style="position: relative;">
+          <button type="button" class="btn btn-secondary btn-sm" id="btnNotificationBell" style="position: relative; padding: 0.4rem 0.65rem;" title="In-App Notifications">
+            <i data-lucide="bell" style="width: 15px; height: 15px;"></i>
+            <span class="notification-badge hidden" id="notificationBadge" style="position: absolute; top: -4px; right: -4px; background: #ef4444; color: #fff; font-size: 0.65rem; font-weight: 800; padding: 1px 5px; border-radius: 999px; line-height: 1;">0</span>
+          </button>
+          <div class="notification-dropdown card hidden" id="notificationDropdown" style="position: absolute; right: 0; top: 115%; width: 360px; max-height: 440px; z-index: 1000; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.15); border: 1px solid var(--border-medium); display: flex; flex-direction: column; overflow: hidden; background: #ffffff;">
+            <div style="padding: 0.75rem 1rem; border-bottom: 1px solid var(--border-light); display: flex; align-items: center; justify-content: space-between; background: var(--bg-subtle);">
+              <div style="font-weight: 700; font-size: 0.85rem; display: flex; align-items: center; gap: 6px;">
+                <i data-lucide="bell" style="width: 14px; height: 14px; color: var(--cyan-dark);"></i>
+                <span>Engineer Notifications</span>
+              </div>
+              <button type="button" id="btnMarkAllRead" style="background: none; border: none; font-size: 0.72rem; color: var(--cyan-dark); cursor: pointer; font-weight: 600;">Mark all read</button>
+            </div>
+            <div id="notificationList" style="overflow-y: auto; max-height: 360px; padding: 0.5rem;"></div>
+          </div>
+        </div>
+
+        <!-- Engineer Profile Chip -->
+        <div class="user-profile-chip" id="engineerProfileChip">
+          <div class="user-avatar-dot" style="background: #0284c7; color: #fff;" id="engineerAvatarDot">R</div>
+          <div style="display: flex; flex-direction: column; text-align: left; line-height: 1.1;">
+            <div style="display: flex; align-items: center; gap: 4px;">
+              <span style="font-weight: 700; font-size: 0.82rem;" id="engineerDisplayName">Rajesh Kumar</span>
+              <span class="badge" style="background: #e0f2fe; color: #0369a1; font-size: 0.65rem; padding: 1px 5px; font-family: var(--font-mono);" id="engineerDisplayId">ENG-0001</span>
+            </div>
+            <span style="font-size: 0.68rem; color: #b45309; font-weight: 600;">[Demo Account] Field Engineer</span>
+          </div>
+          <button type="button" class="btn-logout" onclick="window.engineerLogout()" title="Log out of Engineer account">
+            <i data-lucide="log-out" style="width: 12px; height: 12px;"></i>
+            <span>Logout</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="container" style="padding-top: 2rem; padding-bottom: 4rem;">
+
+    <!-- Workspace Banner -->
+    <section style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #ffffff; border-radius: 12px; padding: 1.75rem 2rem; margin-bottom: 2rem; border: 1px solid rgba(6, 182, 212, 0.2); position: relative; overflow: hidden;">
+      <div style="position: relative; z-index: 2; max-width: 760px;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+          <span class="badge badge-priority-critical font-mono" style="font-size: 0.68rem;">LIVE DISPATCH CONSOLE</span>
+          <span class="demo-honesty-tag" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border-color: rgba(245, 158, 11, 0.3);">[Demo Account] Prototype Simulation</span>
+        </div>
+        <h1 style="font-family: var(--font-display); font-size: 1.85rem; font-weight: 800; margin-bottom: 0.5rem; color: #ffffff;">
+          Assigned Road Repair Operations & Evidence Dispatch
+        </h1>
+        <p style="font-size: 0.88rem; color: #94a3b8; line-height: 1.5; margin: 0;">
+          Acknowledge municipal work orders, deploy repair squads, track repair progress milestones (including the 90% surface finish notification), and submit completion evidence for mandatory authority durability verification.
+        </p>
+      </div>
+    </section>
+
+    <!-- KPI Metric Cards -->
+    <section class="grid grid-4" style="margin-bottom: 2rem;">
+      <div class="card" style="padding: 1.25rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+          <span style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Total Assigned</span>
+          <i data-lucide="clipboard-list" style="color: var(--cyan-dark); width: 18px; height: 18px;"></i>
+        </div>
+        <div style="font-size: 1.85rem; font-weight: 800; font-family: var(--font-mono);" id="kpiTotalTasks">--</div>
+        <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 4px;">Assigned to your engineer ID</div>
+      </div>
+
+      <div class="card" style="padding: 1.25rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+          <span style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Pending Acknowledgment</span>
+          <i data-lucide="clock" style="color: #f59e0b; width: 18px; height: 18px;"></i>
+        </div>
+        <div style="font-size: 1.85rem; font-weight: 800; font-family: var(--font-mono); color: #d97706;" id="kpiPendingAck">--</div>
+        <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 4px;">Awaiting acceptance</div>
+      </div>
+
+      <div class="card" style="padding: 1.25rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+          <span style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Work In Progress</span>
+          <i data-lucide="hammer" style="color: #0284c7; width: 18px; height: 18px;"></i>
+        </div>
+        <div style="font-size: 1.85rem; font-weight: 800; font-family: var(--font-mono); color: #0284c7;" id="kpiInProgress">--</div>
+        <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 4px;">Active road maintenance</div>
+      </div>
+
+      <div class="card" style="padding: 1.25rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+          <span style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Completed / Monitoring</span>
+          <i data-lucide="check-circle" style="color: #10b981; width: 18px; height: 18px;"></i>
+        </div>
+        <div style="font-size: 1.85rem; font-weight: 800; font-family: var(--font-mono); color: #059669;" id="kpiCompleted">--</div>
+        <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 4px;">60-day durability review</div>
+      </div>
+    </section>
+
+    <!-- Filter Tabs & Actions -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem;">
+      <div class="filter-tabs" id="engineerFilterTabs" style="display: flex; gap: 0.5rem;">
+        <button type="button" class="btn btn-secondary btn-sm active" data-filter="ALL">All Work Orders</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-filter="PENDING_ACK">Pending Acknowledgment</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-filter="IN_PROGRESS">In Progress</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-filter="COMPLETED">Completed / In Review</button>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <button type="button" class="btn btn-secondary btn-sm" id="btnRefreshTasks" title="Refresh assigned tasks list">
+          <i data-lucide="refresh-cw"></i>
+          <span>Refresh Tasks</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Task Cards Container -->
+    <div id="engineerTasksLoadingState" style="text-align: center; padding: 4rem 1rem;">
+      <i data-lucide="loader-2" class="spin" style="width: 32px; height: 32px; color: var(--cyan-dark); margin: 0 auto 1rem auto; display: block;"></i>
+      <div style="font-weight: 600; color: var(--text-secondary);">Loading assigned maintenance work orders from PostgreSQL...</div>
+    </div>
+
+    <div id="engineerTasksEmptyState" class="hidden" style="text-align: center; padding: 4rem 1rem; background: #ffffff; border-radius: 12px; border: 1px dashed var(--border-medium);">
+      <i data-lucide="check-circle-2" style="width: 44px; height: 44px; color: #10b981; margin: 0 auto 1rem auto; display: block;"></i>
+      <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 0.5rem;">No Assigned Tasks Found</h3>
+      <p style="font-size: 0.82rem; color: var(--text-secondary); max-width: 420px; margin: 0 auto 1.5rem auto;">
+        You currently have no road repair tasks under this filter. When an authority assigns a complaint to your ID, it will appear here in real time.
+      </p>
+      <a href="authority.html" class="btn btn-secondary btn-sm">
+        <i data-lucide="shield-check"></i>
+        <span>Go to Authority Queue to Assign a Task</span>
+      </a>
+    </div>
+
+    <div id="engineerTasksContainer" class="grid grid-2" style="gap: 1.5rem;">
+      <!-- Task Cards injected dynamically via engineerApp.js -->
+    </div>
+
+  </main>
+
+  <!-- ================= MODAL 1: UPDATE PROGRESS ================= -->
+  <div class="modal-backdrop" id="updateProgressModal">
+    <div class="modal-card" style="max-width: 540px;">
+      <button class="modal-close-btn" onclick="window.closeProgressModal()" aria-label="Close modal">
+        <i data-lucide="x"></i>
+      </button>
+
+      <div class="card-header">
+        <div class="card-title">
+          <i data-lucide="trending-up" style="width: 18px; height: 18px; color: var(--cyan-dark);"></i>
+          <span>Update Site Repair Progress</span>
+        </div>
+        <span class="badge badge-status-in-progress" id="progModalComplaintId">MD-000001</span>
+      </div>
+
+      <form id="updateProgressForm" style="padding: 1.25rem;">
+        <div style="background: var(--bg-subtle); padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1.25rem; font-size: 0.8rem; border: 1px solid var(--border-light);">
+          <div><strong>Location:</strong> <span id="progModalLocation">100 Feet Road, Indiranagar</span></div>
+          <div style="margin-top: 2px;"><strong>Damage:</strong> <span id="progModalDamage">POTHOLE</span></div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" style="display: flex; justify-content: space-between; align-items: center;">
+            <span>Reported Completion Level (%)</span>
+            <span class="font-mono font-bold" style="color: var(--cyan-dark); font-size: 1.1rem;" id="progSliderValue">50%</span>
+          </label>
+          <input type="range" min="10" max="95" step="5" value="50" class="form-control" id="progRangeInput" style="padding: 0; cursor: pointer;" />
+          <div style="display: flex; justify-content: space-between; font-size: 0.68rem; color: var(--text-muted); margin-top: 4px;">
+            <span>10% Mobilized</span>
+            <span>50% Sub-base Repaired</span>
+            <span>90% Surface Finished</span>
+          </div>
+        </div>
+
+        <!-- Quick Milestone Buttons -->
+        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.25rem;">
+          <button type="button" class="btn btn-secondary btn-sm" style="font-size: 0.72rem; padding: 4px 8px;" onclick="window.setProgressPreset(25, 'Excavation completed, edge cutting & cleaning in progress.')">25% Excavated</button>
+          <button type="button" class="btn btn-secondary btn-sm" style="font-size: 0.72rem; padding: 4px 8px;" onclick="window.setProgressPreset(50, 'Stone aggregate base course laid and compacted.')">50% Base Ready</button>
+          <button type="button" class="btn btn-secondary btn-sm" style="font-size: 0.72rem; padding: 4px 8px;" onclick="window.setProgressPreset(75, 'Bituminous asphalt mix paved and vibratory rolled.')">75% Paved</button>
+          <button type="button" class="btn btn-secondary btn-sm" style="font-size: 0.72rem; padding: 4px 8px; background: #e0f2fe; color: #0369a1; border-color: #7dd3fc; font-weight: 700;" onclick="window.setProgressPreset(90, 'Asphalt surface leveling and sealing complete. Entering pre-verification stage.')">90% Surface Finished (Triggers Citizen 90% Notice)</button>
+        </div>
+
+        <div id="prog90Notice" class="hidden" style="background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; padding: 0.65rem 0.85rem; border-radius: 6px; font-size: 0.75rem; margin-bottom: 1rem;">
+          <i data-lucide="bell" style="width: 14px; height: 14px; display: inline; vertical-align: -2px; color: #2563eb;"></i>
+          <strong>Connected Notification:</strong> Updating to 90% will dispatch live notifications to both Citizen and Municipal Authority informing them that road repair progress has reached 90%.
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Field Engineer Site Notes</label>
+          <textarea class="form-control" id="progNotesInput" rows="3" placeholder="Describe current site operations, equipment deployed, or temporary traffic diversion notes..."></textarea>
+        </div>
+
+        <div id="progErrorBox" class="hidden" style="background: #fef2f2; border: 1px solid rgba(239, 68, 68, 0.3); color: #b91c1c; padding: 0.6rem 0.85rem; border-radius: 6px; font-size: 0.78rem; margin-bottom: 0.85rem;"></div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="window.closeProgressModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm" id="btnSubmitProgress">
+            <i data-lucide="check"></i>
+            <span>Update Progress</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================= MODAL 2: SUBMIT COMPLETION EVIDENCE ================= -->
+  <div class="modal-backdrop" id="submitCompletionModal">
+    <div class="modal-card" style="max-width: 640px;">
+      <button class="modal-close-btn" onclick="window.closeCompletionModal()" aria-label="Close modal">
+        <i data-lucide="x"></i>
+      </button>
+
+      <div class="card-header">
+        <div class="card-title">
+          <i data-lucide="camera" style="width: 18px; height: 18px; color: #10b981;"></i>
+          <span>Submit Repair-Completion Evidence</span>
+        </div>
+        <span class="badge badge-status-assigned" id="compModalComplaintId">MD-000001</span>
+      </div>
+
+      <form id="submitCompletionForm" style="padding: 1.25rem;">
+        <div style="background: var(--bg-subtle); padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1.25rem; font-size: 0.8rem; border: 1px solid var(--border-light);">
+          <div><strong>Road:</strong> <span id="compModalLocation">100 Feet Road, Indiranagar</span></div>
+          <div style="margin-top: 2px;"><strong>Original Hazard:</strong> <span id="compModalDamage">POTHOLE</span> (Priority: <span id="compModalPriority">88/100</span>)</div>
+        </div>
+
+        <!-- Before & After Comparison Preview -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem;">
+          <div>
+            <label class="form-label" style="font-size: 0.75rem;">Before Repair (Original Evidence)</label>
+            <div style="height: 140px; border-radius: 8px; border: 1px solid var(--border-medium); overflow: hidden; background: #0f172a; display: flex; align-items: center; justify-content: center;">
+              <img id="compBeforeImg" src="" alt="Before Repair Evidence" style="width: 100%; height: 100%; object-fit: cover;" />
+            </div>
+          </div>
+          <div>
+            <label class="form-label" style="font-size: 0.75rem; display: flex; justify-content: space-between;">
+              <span>After Repair (Proof Photo)</span>
+              <span class="demo-honesty-tag" style="font-size: 0.65rem;">Required Proof</span>
+            </label>
+            <div style="height: 140px; border-radius: 8px; border: 1px solid var(--border-medium); overflow: hidden; background: #0f172a; display: flex; align-items: center; justify-content: center;">
+              <img id="compAfterPreview" src="https://images.unsplash.com/photo-1590496793929-36417d3117de?auto=format&fit=crop&w=600&q=80" alt="Repaired Road Proof" style="width: 100%; height: 100%; object-fit: cover;" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Photo Selector / Upload -->
+        <div class="form-group">
+          <label class="form-label">Repaired Road Evidence Image URL / Preset</label>
+          <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
+            <input type="text" class="form-control" id="compImageUrlInput" value="https://images.unsplash.com/photo-1590496793929-36417d3117de?auto=format&fit=crop&w=1000&q=80" placeholder="https://..." required />
+            <button type="button" class="btn btn-secondary btn-sm" onclick="window.useSampleRepairPhoto()">Sample Photo</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Materials & Equipment Deployed</label>
+          <input type="text" class="form-control" id="compMaterialsInput" value="Bitumen VG-30, 20mm/10mm Dense Graded Bituminous Macadam (DBM), 8-ton vibratory roller." placeholder="e.g. Cold mix asphalt, bitumen tack coat, compactor roller" required />
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Field Execution Summary & Engineering Remarks</label>
+          <textarea class="form-control" id="compNotesInput" rows="3" placeholder="Pothole excavated to 100mm depth, edges squared, emulsion tack coat applied, hot mix asphalt compacted to flush finish." required>Surface reinstated to smooth grade. Compaction density tested and satisfactory. Cleared for mandatory 60-day post-repair durability observation.</textarea>
+        </div>
+
+        <!-- Post-Repair Monitoring Commitment Banner -->
+        <div style="background: #f0fdf4; border: 1px solid rgba(16, 185, 129, 0.3); color: #166534; padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.75rem; margin-bottom: 1.25rem;">
+          <div style="font-weight: 700; margin-bottom: 2px; display: flex; align-items: center; gap: 4px;">
+            <i data-lucide="shield-check" style="width: 14px; height: 14px; color: #15803d;"></i>
+            <span>60-Day Mandatory Post-Repair Monitoring Activated:</span>
+          </div>
+          <div>
+            Submitting this completion evidence moves the complaint to <strong>Under Monitoring (Resolution: 90%)</strong>. In accordance with municipal protocol, final 100% resolution is strictly subject to authority verification after durability observation.
+          </div>
+        </div>
+
+        <div id="compErrorBox" class="hidden" style="background: #fef2f2; border: 1px solid rgba(239, 68, 68, 0.3); color: #b91c1c; padding: 0.6rem 0.85rem; border-radius: 6px; font-size: 0.78rem; margin-bottom: 0.85rem;"></div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+          <button type="button" class="btn btn-secondary btn-sm" onclick="window.closeCompletionModal()">Cancel</button>
+          <button type="submit" class="btn btn-emerald btn-sm" id="btnSubmitCompletion">
+            <i data-lucide="send"></i>
+            <span>Submit Evidence for Authority Verification</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================= MODAL 3: VIEW EVIDENCE / MAP ================= -->
+  <div class="modal-backdrop" id="viewEvidenceModal">
+    <div class="modal-card" style="max-width: 600px;">
+      <button class="modal-close-btn" onclick="window.closeEvidenceModal()" aria-label="Close modal">
+        <i data-lucide="x"></i>
+      </button>
+
+      <div class="card-header">
+        <div class="card-title" id="evidenceModalTitle">Complaint Evidence & GIS Coordinates</div>
+        <span class="badge badge-priority-critical" id="evidenceModalBadge">CRITICAL</span>
+      </div>
+
+      <div class="card-body">
+        <div style="margin-bottom: 1rem;">
+          <img id="evidenceModalImage" src="" alt="Road Hazard Evidence" style="width: 100%; max-height: 280px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border-medium);" />
+        </div>
+        <div style="font-size: 0.8rem; margin-bottom: 0.5rem;">
+          <strong id="evidenceModalRoad">100 Feet Road, Indiranagar</strong> &bull;
+          <span class="font-mono text-xs text-muted" id="evidenceModalCoords">12.9784, 77.6408</span>
+        </div>
+        <div id="evidenceLeafletMap" style="height: 200px; border-radius: 8px; border: 1px solid var(--border-medium); overflow: hidden;"></div>
+      </div>
+
+      <div class="card-footer">
+        <span class="text-xs text-muted font-mono">MargDrishti GIS Telemetry</span>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="window.closeEvidenceModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container"></div>
+
+  <footer style="background: #ffffff; border-top: 1px solid var(--border-light); padding: 2rem 0; font-size: 0.8rem; color: var(--text-muted); margin-top: 4rem;">
+    <div class="container" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+      <div>
+        <strong>MargDrishti</strong> &bull; Municipal Road Engineering Operations Console
+      </div>
+      <div style="display: flex; align-items: center; gap: 1rem;">
+        <span class="demo-honesty-tag">Real Time Solution</span>
+        <span>YOLO11 Model Simulation</span>
+      </div>
+    </div>
+  </footer>
+
+  <script type="module" src="js/i18n.js"></script>
+  <script type="module" src="js/engineerApp.js"></script>
+</body>
+</html>

@@ -45,6 +45,10 @@
         <i data-lucide="shield-check" style="width: 14px; height: 14px;"></i>
         <span>Authority Dashboard</span>
       </a>
+      <a href="engineer.html" class="demo-nav-link">
+        <i data-lucide="wrench" style="width: 14px; height: 14px;"></i>
+        <span>Engineer Workspace</span>
+      </a>
       <a href="map.html" class="demo-nav-link">
         <i data-lucide="map" style="width: 14px; height: 14px;"></i>
         <span>Pothole Map & Navigation</span>
@@ -76,6 +80,24 @@
       </div>
 
       <div class="nav-actions">
+        <!-- Notification Bell -->
+        <div class="notification-bell-container" id="authorityNotificationBellContainer" style="position: relative;">
+          <button type="button" class="btn btn-secondary btn-sm" id="btnNotificationBell" style="position: relative; padding: 0.4rem 0.65rem;" title="In-App Notifications">
+            <i data-lucide="bell" style="width: 15px; height: 15px;"></i>
+            <span class="notification-badge hidden" id="notificationBadge" style="position: absolute; top: -4px; right: -4px; background: #ef4444; color: #fff; font-size: 0.65rem; font-weight: 800; padding: 1px 5px; border-radius: 999px; line-height: 1;">0</span>
+          </button>
+          <div class="notification-dropdown card hidden" id="notificationDropdown" style="position: absolute; right: 0; top: 115%; width: 360px; max-height: 440px; z-index: 1000; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.15); border: 1px solid var(--border-medium); display: flex; flex-direction: column; overflow: hidden; background: #ffffff;">
+            <div style="padding: 0.75rem 1rem; border-bottom: 1px solid var(--border-light); display: flex; align-items: center; justify-content: space-between; background: var(--bg-subtle);">
+              <div style="font-weight: 700; font-size: 0.85rem; display: flex; align-items: center; gap: 6px;">
+                <i data-lucide="bell" style="width: 14px; height: 14px; color: var(--cyan-dark);"></i>
+                <span>Authority Notifications</span>
+              </div>
+              <button type="button" id="btnMarkAllRead" style="background: none; border: none; font-size: 0.72rem; color: var(--cyan-dark); cursor: pointer; font-weight: 600;">Mark all read</button>
+            </div>
+            <div id="notificationList" style="overflow-y: auto; max-height: 360px; padding: 0.5rem;"></div>
+          </div>
+        </div>
+
         <a href="map.html" class="btn btn-secondary btn-sm" title="Explore Pothole Map & GIS">
           <i data-lucide="map"></i>
           <span data-i18n="nav.potholeMap">Pothole Map</span>
@@ -325,35 +347,42 @@
 
           <!-- RIGHT COLUMN: Explainable Priority & Authority Actions -->
           <div>
-            <h3 style="font-size: 0.85rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.5rem;">
-              3. Explainable Priority Breakdown (0–100)
+            <h3 style="font-size: 0.85rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.5rem; display: flex; justify-content: space-between; align-items: center;">
+              <span>3. Prototype Explainable Priority Model (0–100)</span>
+              <span id="inspPriorityBadge" class="badge badge-priority-critical font-mono">--/100</span>
             </h3>
             <div class="card" style="padding: 1rem; background: var(--bg-subtle); margin-bottom: 1.25rem;">
               <div class="factor-bar-row">
-                <div class="factor-bar-labels"><span>Damage Severity (30%)</span><span id="inspBarSevLabel" class="font-mono">28/30</span></div>
-                <div class="factor-bar-track"><div id="inspBarSev" class="factor-bar-fill" style="width: 93%;"></div></div>
+                <div class="factor-bar-labels"><span>1. Damage Severity (30%)</span><span id="inspBarSevLabel" class="font-mono">--/30</span></div>
+                <div class="factor-bar-track"><div id="inspBarSev" class="factor-bar-fill" style="width: 0%;"></div></div>
+                <div style="font-size: 0.68rem; color: var(--text-muted); margin-top: 2px;" id="inspBarSevDesc">Model defect rating</div>
               </div>
-              <div class="factor-bar-row">
-                <div class="factor-bar-labels"><span>Damage Extent (20%)</span><span id="inspBarExtLabel" class="font-mono">18/20</span></div>
-                <div class="factor-bar-track"><div id="inspBarExt" class="factor-bar-fill" style="width: 90%;"></div></div>
+              <div class="factor-bar-row" style="margin-top: 0.5rem;">
+                <div class="factor-bar-labels"><span>2. Damage Extent (20%)</span><span id="inspBarExtLabel" class="font-mono">--/20</span></div>
+                <div class="factor-bar-track"><div id="inspBarExt" class="factor-bar-fill" style="width: 0%;"></div></div>
+                <div style="font-size: 0.68rem; color: var(--text-muted); margin-top: 2px;" id="inspBarExtDesc">Bounding box area & count</div>
               </div>
-              <div class="factor-bar-row">
-                <div class="factor-bar-labels"><span>Road Importance (20%)</span><span id="inspBarRoadLabel" class="font-mono">18/20</span></div>
-                <div class="factor-bar-track"><div id="inspBarRoad" class="factor-bar-fill" style="width: 90%;"></div></div>
+              <div class="factor-bar-row" style="margin-top: 0.5rem;">
+                <div class="factor-bar-labels"><span>3. Road Importance (20%)</span><span id="inspBarRoadLabel" class="font-mono">--/20</span></div>
+                <div class="factor-bar-track"><div id="inspBarRoad" class="factor-bar-fill" style="width: 0%;"></div></div>
+                <div style="font-size: 0.68rem; color: var(--text-muted); margin-top: 2px;" id="inspBarRoadDesc">Corridor hierarchy profile</div>
               </div>
-              <div class="factor-bar-row">
-                <div class="factor-bar-labels"><span>Traffic Exposure (10%)</span><span id="inspBarTrafLabel" class="font-mono">9/10</span></div>
-                <div class="factor-bar-track"><div id="inspBarTraf" class="factor-bar-fill" style="width: 90%;"></div></div>
+              <div class="factor-bar-row" style="margin-top: 0.5rem;">
+                <div class="factor-bar-labels"><span>4. Traffic Exposure (10%)</span><span id="inspBarTrafLabel" class="font-mono">--/10</span></div>
+                <div class="factor-bar-track"><div id="inspBarTraf" class="factor-bar-fill" style="width: 0%;"></div></div>
+                <div style="font-size: 0.68rem; color: var(--text-muted); margin-top: 2px;" id="inspBarTrafDesc">Transit bus & peak volume</div>
               </div>
-              <div class="factor-bar-row">
-                <div class="factor-bar-labels"><span>Sensitive Location Risk (10%)</span><span id="inspBarSensLabel" class="font-mono">10/10</span></div>
-                <div class="factor-bar-track"><div id="inspBarSens" class="factor-bar-fill" style="width: 100%;"></div></div>
+              <div class="factor-bar-row" style="margin-top: 0.5rem;">
+                <div class="factor-bar-labels"><span>5. Sensitive Location Risk (10%)</span><span id="inspBarSensLabel" class="font-mono">--/10</span></div>
+                <div class="factor-bar-track"><div id="inspBarSens" class="factor-bar-fill" style="width: 0%;"></div></div>
+                <div style="font-size: 0.68rem; color: var(--text-muted); margin-top: 2px;" id="inspBarSensDesc">Nearby schools / hospital link</div>
               </div>
-              <div class="factor-bar-row">
-                <div class="factor-bar-labels"><span>Corroborating Evidence (10%)</span><span id="inspBarCorrLabel" class="font-mono">9/10</span></div>
-                <div class="factor-bar-track"><div id="inspBarCorr" class="factor-bar-fill" style="width: 90%;"></div></div>
+              <div class="factor-bar-row" style="margin-top: 0.5rem;">
+                <div class="factor-bar-labels"><span>6. Corroborating Evidence (10%)</span><span id="inspBarCorrLabel" class="font-mono">--/10</span></div>
+                <div class="factor-bar-track"><div id="inspBarCorr" class="factor-bar-fill" style="width: 0%;"></div></div>
+                <div style="font-size: 0.68rem; color: var(--text-muted); margin-top: 2px;" id="inspBarCorrDesc">Independent reports cluster</div>
               </div>
-              <div style="font-size: 0.72rem; color: var(--text-secondary); line-height: 1.4; margin-top: 0.5rem;" id="inspectorRationale">
+              <div style="font-size: 0.72rem; color: var(--text-secondary); line-height: 1.4; margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid var(--border-light);" id="inspectorRationale">
                 Rationale loading...
               </div>
             </div>
@@ -423,7 +452,7 @@
 
   <!-- ================= MODAL 2: ASSIGN MAINTENANCE ENGINEER ================= -->
   <div class="modal-backdrop" id="assignOfficerModal">
-    <div class="modal-card">
+    <div class="modal-card" style="max-width: 640px;">
       <button class="modal-close-btn" onclick="closeAssignModal()" aria-label="Close modal">
         <i data-lucide="x"></i>
       </button>
@@ -433,31 +462,85 @@
           <i data-lucide="user-check" style="width: 18px; height: 18px; color: var(--cyan-dark);"></i>
           <span>Assign Maintenance Engineer</span>
         </div>
+        <span class="badge badge-priority-critical" id="assignModalPriorityBadge">CRITICAL</span>
       </div>
 
       <form id="assignOfficerForm" style="padding: 1.25rem;">
+        <!-- Complaint Context Summary Banner -->
+        <div id="assignComplaintSummaryBanner" style="background: var(--bg-subtle); border: 1px solid var(--border-medium); border-radius: 8px; padding: 0.85rem 1rem; margin-bottom: 1.25rem; font-size: 0.8rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 4px;">
+            <div>
+              <strong style="color: var(--text-primary);">Complaint:</strong> <span id="assignSumId" class="font-mono font-bold" style="color: var(--cyan-dark);">MD-000001</span>
+            </div>
+            <div>
+              <span id="assignSumDamageType" style="font-weight: 700;">POTHOLE</span> &bull; 
+              <span id="assignSumSeverity" class="badge badge-priority-critical" style="font-size: 0.65rem;">CRITICAL</span>
+            </div>
+          </div>
+          <div style="margin-bottom: 4px; color: var(--text-secondary);">
+            <i data-lucide="map-pin" style="width: 12px; height: 12px; display: inline; vertical-align: -1px;"></i>
+            <span id="assignSumLocation">100 Feet Road, Indiranagar</span>
+            <span id="assignSumCoords" class="font-mono text-xs text-muted" style="margin-left: 4px;">(12.9784, 77.6408)</span>
+          </div>
+          <div style="margin-bottom: 4px; font-size: 0.75rem; color: var(--text-muted);" id="assignSumAi">
+            AI Detection: YOLO11 verified pothole
+          </div>
+          <div style="font-size: 0.75rem; color: var(--text-secondary); background: #ffffff; padding: 0.4rem 0.6rem; border-radius: 4px; border: 1px dashed var(--border-medium);" id="assignSumCitizenDesc">
+            Citizen: Deep road defect reported via MargDrishti portal.
+          </div>
+        </div>
+
+        <!-- Available Engineers Selection -->
         <div class="form-group">
-          <label class="form-label">Select Engineering Personnel</label>
+          <label class="form-label" style="display: flex; justify-content: space-between; align-items: center;">
+            <span>Select Available Engineering Personnel</span>
+            <span style="font-size: 0.72rem; color: var(--text-muted); font-weight: normal;" id="assignEngineerLoadingStatus">Available from database:</span>
+          </label>
           <select class="form-control" id="selectAssignOfficer">
             <!-- Populated via authorityApp.js -->
           </select>
         </div>
 
-        <div class="form-group">
-          <label class="form-label">Target Completion SLA</label>
-          <input type="text" class="form-control" value="Within 24 Hours (Arterial Emergency Response)" readonly />
+        <!-- Selected Engineer Preview Card -->
+        <div id="selectedEngineerInfoCard" style="background: #f8fafc; border: 1px solid var(--border-light); border-radius: 6px; padding: 0.65rem 0.85rem; margin-bottom: 1rem; font-size: 0.78rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+            <div style="font-weight: 700; color: var(--text-primary);" id="prevEngName">Rajesh Kumar (ENG-0001)</div>
+            <span class="badge" style="background: #e0f2fe; color: #0369a1; font-size: 0.65rem;" id="prevEngWorkload">Active Workload: 1 Task</span>
+          </div>
+          <div style="display: flex; gap: 12px; color: var(--text-secondary); font-size: 0.72rem; flex-wrap: wrap;">
+            <div><strong>Role:</strong> <span id="prevEngDesig">Assistant Executive Engineer</span></div>
+            <div><strong>Contact:</strong> <span id="prevEngPhone" class="font-mono">+91 98450 12345</span></div>
+            <div><strong>Zone:</strong> <span id="prevEngZone">East Zone & Central Corridor</span></div>
+          </div>
+          <div style="margin-top: 4px; font-size: 0.68rem; color: #b45309; display: flex; align-items: center; gap: 4px;">
+            <i data-lucide="info" style="width: 11px; height: 11px;"></i>
+            <span id="prevEngDemoLabel">[Demo Account] Verified registered engineer for prototype simulation.</span>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+          <div class="form-group">
+            <label class="form-label">Expected Completion Date</label>
+            <input type="date" class="form-control" id="assignExpectedDate" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Response Protocol</label>
+            <input type="text" class="form-control" value="High Priority Work Order (24–48h SLA)" readonly />
+          </div>
         </div>
 
         <div class="form-group">
-          <label class="form-label">Work Order Instructions</label>
-          <textarea class="form-control" id="assignNotesInput" rows="3" placeholder="Specify equipment, batch mix, or traffic diversion...">Deploy Rapid Patching Squad with hot bitumen asphalt mix. Direct two-wheeler traffic away fromIndiranagar 12th Main junction.</textarea>
+          <label class="form-label">Work Order Instructions / Authority Notes</label>
+          <textarea class="form-control" id="assignNotesInput" rows="3" placeholder="Specify batch mix, equipment requirements, safety diversions...">Deploy Rapid Patching Squad with hot bitumen asphalt mix. Direct two-wheeler traffic away from the junction.</textarea>
         </div>
+
+        <div id="assignErrorBox" class="hidden" style="background: #fef2f2; border: 1px solid rgba(239, 68, 68, 0.4); color: #b91c1c; padding: 0.6rem 0.85rem; border-radius: 6px; font-size: 0.75rem; margin-bottom: 0.85rem;"></div>
 
         <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.25rem;">
           <button type="button" class="btn btn-secondary" onclick="closeAssignModal()">Cancel</button>
-          <button type="submit" class="btn btn-primary">
+          <button type="submit" class="btn btn-primary" id="btnConfirmAssignSubmit">
             <i data-lucide="send"></i>
-            <span>Confirm & Dispatch Work Order</span>
+            <span id="btnConfirmAssignText">Confirm & Dispatch Work Order</span>
           </button>
         </div>
       </form>

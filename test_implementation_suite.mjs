@@ -235,6 +235,118 @@ async function runSuite() {
     `Authority queue displays identical priority score (${foundInQueue?.priority_score})`);
 
   // -----------------------------------------------------------------
+  // 5. WORKFLOW IMPROVEMENTS (ASSIGNMENT, NOTIFICATIONS, LIFECYCLE)
+  // -----------------------------------------------------------------
+  console.log('\n--- 5. WORKFLOW IMPROVEMENTS: ASSIGNMENT, NOTIFICATIONS & REPAIR ---');
+
+  // 5a: Fetch Available Engineers with live workload & demo label
+  const engListRes = await request('/api/engineers');
+  assert(engListRes.status === 200, 'Available engineers list fetched (HTTP 200)');
+  assert(engListRes.data?.count >= 3, `Seeded engineers found (Count: ${engListRes.data?.count})`);
+  const eng1 = engListRes.data?.engineers?.find(e => e.user_id === 'ENG-0001');
+  assert(!!eng1, 'Engineer ENG-0001 (Rajesh Kumar) exists in database');
+  assert(eng1?.is_demo_account === true, 'Engineers are transparently labeled as demo accounts (is_demo_account: true)');
+  assert(typeof eng1?.active_tasks === 'number', `Live engineer workload tracked (active_tasks: ${eng1?.active_tasks})`);
+
+  // 5b: Authority Assigns Engineer Workflow
+  const assignPayload = {
+    assigned_to: 'ENG-0001',
+    assigned_by: 'AUTHUSER-0001',
+    remarks: 'Deploy pothole repair team with asphalt patching mix within SLA.',
+    expected_completion_date: '2026-11-05'
+  };
+  const assignRes = await request(`/api/complaints/${createdId}/assign`, 'POST', assignPayload);
+  assert(assignRes.status === 200, `Engineer assignment successful (HTTP 200)`);
+  assert(assignRes.data?.complaint?.status === 'ASSIGNED', `Complaint status updated to ASSIGNED`);
+  assert(assignRes.data?.assignment?.assigned_to === 'ENG-0001', `Assignment record created for ENG-0001`);
+
+  // 5c: Connected Notifications for Assignment
+  const engNotifs = await request(`/api/notifications?recipient_id=ENG-0001`);
+  assert(engNotifs.status === 200, 'Engineer notifications retrieved (HTTP 200)');
+  const engAssignNotif = engNotifs.data?.notifications?.find(n => n.complaint_id === createdId && n.event_type === 'ENGINEER_ASSIGNED');
+  assert(!!engAssignNotif, `Assigned engineer received notification for ${createdId}`);
+
+  const citNotifs = await request(`/api/notifications?recipient_id=${citizenId}`);
+  assert(citNotifs.status === 200, 'Citizen notifications retrieved (HTTP 200)');
+  const citAssignNotif = citNotifs.data?.notifications?.find(n => n.complaint_id === createdId && n.event_type === 'ENGINEER_ASSIGNED');
+  assert(!!citAssignNotif, `Citizen received notification that engineer has been assigned`);
+
+  // 5d: Engineer Workspace Tasks Endpoint
+  const engTasksRes = await request(`/api/engineer/tasks?engineer_id=ENG-0001`);
+  assert(engTasksRes.status === 200, 'Engineer workspace tasks retrieved (HTTP 200)');
+  const taskInWorkspace = engTasksRes.data?.tasks?.find(t => t.complaint_id === createdId);
+  assert(!!taskInWorkspace, `Complaint ${createdId} visible in Engineer ENG-0001 Workspace`);
+  assert(taskInWorkspace?.status === 'ASSIGNED', 'Task status is ASSIGNED');
+
+  // 5e: Engineer Acknowledges Task
+  const ackRes = await request(`/api/engineer/tasks/${createdId}/acknowledge`, 'POST', { engineer_id: 'ENG-0001' });
+  assert(ackRes.status === 200, 'Engineer acknowledged task order (HTTP 200)');
+  const authNotifs = await request(`/api/notifications?recipient_id=AUTHUSER-0001`);
+  const ackNotif = authNotifs.data?.notifications?.find(n => n.complaint_id === createdId && n.event_type === 'TASK_ACKNOWLEDGED');
+  assert(!!ackNotif, `Authority notified of engineer task acknowledgment`);
+
+  // 5f: Engineer Starts Repair Work
+  const startRes = await request(`/api/engineer/tasks/${createdId}/start-repair`, 'POST', {
+    engineer_id: 'ENG-0001',
+    description: 'Site mobilized with asphalt roller equipment.'
+  });
+  assert(startRes.status === 200, 'Repair work started (HTTP 200)');
+  assert(startRes.data?.complaint?.status === 'IN_PROGRESS', 'Complaint status moved to IN_PROGRESS');
+
+  const citNotifsAfterStart = await request(`/api/notifications?recipient_id=${citizenId}`);
+  const startNotif = citNotifsAfterStart.data?.notifications?.find(n => n.complaint_id === createdId && n.event_type === 'REPAIR_STARTED');
+  assert(!!startNotif, `Citizen notified: "Repair work has started at [location]"`);
+
+  // 5g: Engineer Updates Progress to 90% (triggers specific 90% notification rule)
+  const progRes = await request(`/api/engineer/tasks/${createdId}/update-progress`, 'POST', {
+    engineer_id: 'ENG-0001',
+    progress_pct: 90,
+    notes: 'Asphalt leveled and rolled. Surface sealed.'
+  });
+  assert(progRes.status === 200, 'Progress updated to 90% (HTTP 200)');
+
+  const citNotifsAfter90 = await request(`/api/notifications?recipient_id=${citizenId}`);
+  const notif90 = citNotifsAfter90.data?.notifications?.find(n => n.complaint_id === createdId && n.event_type === 'REPAIR_PROGRESS_90');
+  assert(!!notif90, `Citizen received 90% progress notification ("Repair progress is reported as 90% for complaint...")`);
+
+  // 5h: Engineer Submits Completion Evidence (Enters 60-day monitoring, Resolution: 90%)
+  const compRes = await request(`/api/engineer/tasks/${createdId}/submit-completion`, 'POST', {
+    engineer_id: 'ENG-0001',
+    completion_image_path: 'https://images.unsplash.com/photo-1590496793929-36417d3117de?auto=format&fit=crop&w=1000&q=80',
+    notes: 'Bitumen compacted flush to grade.',
+    materials_used: 'Bitumen VG-30, Cold mix asphalt.',
+    monitoring_days: 60
+  });
+  assert(compRes.status === 200, 'Completion evidence submitted (HTTP 200)');
+  assert(compRes.data?.complaint?.status === 'REPAIR_COMPLETED', 'Status transitioned to REPAIR_COMPLETED (Resolution 90%)');
+
+  const authNotifsAfterComp = await request(`/api/notifications?recipient_id=AUTHUSER-0001`);
+  const compNotif = authNotifsAfterComp.data?.notifications?.find(n => n.complaint_id === createdId && n.event_type === 'REPAIR_COMPLETED');
+  assert(!!compNotif, `Authority notified: "Engineer Rajesh Kumar has submitted repair-completion evidence for complaint ${createdId}"`);
+
+  // 5i: Authority Verifies & Confirms Final Resolution (100% Resolved)
+  const finalRes = await request(`/api/complaints/${createdId}/confirm-final`, 'POST', {
+    changed_by: 'AUTHUSER-0001',
+    notes: 'Field inspection confirmed surface integrity.'
+  });
+  assert(finalRes.status === 200, 'Authority confirmed final resolution (HTTP 200)');
+  assert(finalRes.data?.complaint?.status === 'RESOLVED', 'Complaint status marked RESOLVED (100%)');
+
+  const citNotifsAfterResolved = await request(`/api/notifications?recipient_id=${citizenId}`);
+  const resolvedNotif = citNotifsAfterResolved.data?.notifications?.find(n => n.complaint_id === createdId && n.event_type === 'COMPLAINT_RESOLVED');
+  assert(!!resolvedNotif, `Citizen notified: "Your complaint ${createdId} has been marked as resolved."`);
+
+  // 5j: Notification Management Endpoints (Read & Unread Count)
+  const unreadBefore = await request(`/api/notifications/unread-count?recipient_id=${citizenId}`);
+  assert(unreadBefore.status === 200 && unreadBefore.data?.unread_count > 0, `Unread count retrieved (${unreadBefore.data?.unread_count})`);
+
+  const markAllRes = await request('/api/notifications/read-all', 'PATCH', { recipient_id: citizenId });
+  assert(markAllRes.status === 200 && markAllRes.data?.success === true, 'Mark all notifications read successful');
+
+  const unreadAfter = await request(`/api/notifications/unread-count?recipient_id=${citizenId}`);
+  assert(unreadAfter.data?.unread_count === 0, 'Unread count correctly reduced to 0');
+
+  // -----------------------------------------------------------------
   // SUMMARY
   // -----------------------------------------------------------------
   console.log('\n===============================================================');

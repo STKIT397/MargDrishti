@@ -5,6 +5,7 @@
  */
 
 import { INITIAL_SEED_COMPLAINTS, SAMPLE_ROAD_IMAGES } from './mockData.js';
+import { PriorityEngine } from './priorityEngine.js';
 import {
   fetchComplaints,
   fetchComplaintById,
@@ -144,19 +145,34 @@ class MargDrishtiStoreManager {
           severity: severityUpper
         }
       ],
-      priority: {
-        score: prioScore,
-        level: prioScore >= 80 ? 'CRITICAL' : 'HIGH',
-        breakdown: {
-          damageSeverity: Math.min(30, Math.round(prioScore * 0.3)),
-          damageExtent: Math.min(20, Math.round(prioScore * 0.2)),
-          roadImportance: Math.min(20, Math.round(prioScore * 0.2)),
-          trafficExposure: Math.min(10, Math.round(prioScore * 0.1)),
-          sensitiveLocation: Math.min(10, Math.round(prioScore * 0.1)),
-          corroboratingEvidence: Math.min(10, Math.round(prioScore * 0.1))
-        },
-        rationale: `Evaluated via MargDrishti YOLO11 + Explainable Priority Engine (Score: ${prioScore}/100).`
-      },
+      priority: (() => {
+        if (c.priority_breakdown && typeof c.priority_breakdown === 'object') {
+          const b = c.priority_breakdown;
+          return {
+            score: prioScore,
+            level: prioScore >= 80 ? 'CRITICAL' : prioScore >= 60 ? 'HIGH' : prioScore >= 40 ? 'MEDIUM' : 'LOW',
+            breakdown: b,
+            rationale: b.rationale || `Evaluated via MargDrishti Prototype Explainable Priority Model (Score: ${prioScore}/100).`
+          };
+        }
+        const calcP = PriorityEngine.calculatePriority({
+          damageType: damageTypeUpper,
+          severity: severityUpper,
+          confidence: confidence,
+          detectionCount: 1,
+          surfaceDamageAreaPct: 0,
+          roadType: 'ARTERIAL',
+          trafficExposure: 'HIGH',
+          sensitiveZones: ['SCHOOL', 'TRANSIT'],
+          corroboratingCount: 1
+        });
+        return {
+          score: prioScore || calcP.score,
+          level: prioScore ? (prioScore >= 80 ? 'CRITICAL' : prioScore >= 60 ? 'HIGH' : 'MEDIUM') : calcP.level,
+          breakdown: calcP.breakdown,
+          rationale: calcP.rationale
+        };
+      })(),
       location: {
         latitude: Number(c.latitude) || 16.7050,
         longitude: Number(c.longitude) || 74.2433,
@@ -173,17 +189,23 @@ class MargDrishtiStoreManager {
       createdAt: c.created_at || c.complaint_date || new Date().toISOString(),
       assignedOfficer: c.assigned_to ? {
         id: c.assigned_to,
-        name: c.assigned_to_name || 'Municipal Engineer',
-        designation: 'Assistant Executive Engineer',
-        phone: '9876500001'
+        user_id: c.assigned_to,
+        name: c.assigned_to_name || (c.assigned_to === 'ENG-0001' ? 'Rajesh Kumar' : c.assigned_to === 'ENG-0002' ? 'Priya Sharma' : 'Municipal Engineer'),
+        designation: c.assigned_to === 'ENG-0002' ? 'Junior Engineer (Civil)' : 'Assistant Executive Engineer',
+        phone: c.assigned_to_phone || '+91 98450 12345',
+        expectedCompletionDate: c.expected_completion_date,
+        acknowledgedAt: c.acknowledged_at,
+        assignmentStatus: c.assignment_status || 'ASSIGNED'
       } : null,
       assignedAt: c.assigned_at || null,
       repairEvidence: (statusUpper === 'RESOLVED' || statusUpper === 'REPAIR_COMPLETED') ? {
-        imageUrl: SAMPLE_ROAD_IMAGES.repaired_road,
-        notes: c.repair_description || 'Surface integrity verified after post-repair monitoring.',
+        imageUrl: c.completion_image_path || SAMPLE_ROAD_IMAGES.repaired_road,
+        notes: c.repair_description || c.repair_notes || 'Surface integrity verified after post-repair monitoring.',
         completedAt: c.repair_completed_at || new Date().toISOString(),
         resolvedBy: c.assigned_to_name || 'Municipal Engineer (AEE)'
       } : null,
+      repairProgress: Number(c.progress_pct) || (statusUpper === 'RESOLVED' ? 100 : statusUpper === 'REPAIR_COMPLETED' ? 90 : statusUpper === 'IN_PROGRESS' ? 50 : 0),
+      repairNotes: c.repair_notes || '',
       monitoring: c.monitoring_id ? {
         monitoringId: c.monitoring_id,
         status: c.monitoring_status || 'UNDER_MONITORING',
@@ -330,12 +352,15 @@ class MargDrishtiStoreManager {
     return res;
   }
 
-  async assignOfficer(complaintId, officer, remarks = '') {
+  async assignOfficer(complaintId, officer, remarks = '', expectedCompletionDate = null) {
     // 1. Send to PostgreSQL backend
+    let backendRes = null;
     try {
-      await assignComplaintApi(complaintId, officer.id || 'AUTHUSER-0001', 'AUTHUSER-0001', remarks);
+      const engId = officer.id || officer.user_id || 'ENG-0001';
+      backendRes = await assignComplaintApi(complaintId, engId, 'AUTHUSER-0001', remarks, expectedCompletionDate);
     } catch (e) {
-      console.warn('Backend assign API warning:', e.message);
+      console.warn('Backend assign API error:', e.message);
+      throw e;
     }
 
     // 2. Update local state
@@ -343,7 +368,12 @@ class MargDrishtiStoreManager {
     const item = all.find(c => c.complaintId === complaintId);
     if (item) {
       const now = new Date();
-      item.assignedOfficer = officer;
+      item.assignedOfficer = {
+        ...officer,
+        expectedCompletionDate,
+        assignedAt: now.toISOString(),
+        assignmentStatus: 'ASSIGNED'
+      };
       item.assignedAt = now.toISOString();
       item.status = 'ASSIGNED';
       item.resolution = 30;
@@ -351,7 +381,7 @@ class MargDrishtiStoreManager {
       item.timeline.push({
         status: 'ASSIGNED',
         title: 'Assigned',
-        remarks: remarks || `Work order dispatched to ${officer.name} (${officer.designation}). Minimum 15-day assignment period initiated.`,
+        remarks: remarks || `Work order dispatched to ${officer.name} (${officer.designation || 'Engineer'}). Minimum 15-day assignment period initiated.`,
         timestamp: now.toISOString(),
         actor: 'Municipal Control Room'
       });

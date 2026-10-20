@@ -6,6 +6,11 @@ const pool = require("./db");
 const cors = require("cors");
 const crypto = require("crypto");
 const { spawn } = require("child_process");
+const { PriorityEngine } = require("./priorityEngine");
+const { runMigration } = require("./migrate");
+
+// Ensure database schema migrations and seed demo engineers are present
+runMigration().catch((err) => console.error("[Startup Migration Warning]:", err.message));
 
 const app = express();
 
@@ -23,6 +28,25 @@ function generateComplaintId() {
   const rand = crypto.randomBytes(4).toString("hex").toUpperCase();
   const time = Date.now().toString().slice(-6);
   return `MD-${time}-${rand}`; // e.g. MD-123456-A1B2C3D4 (total 18 chars, well within 30)
+}
+
+// -------------------------------------------------------------
+// Helper: Persistent In-App Notification Dispatcher
+// -------------------------------------------------------------
+async function createNotification(dbClient, { recipient_id, complaint_id, title, message, event_type, metadata = {} }) {
+  if (!recipient_id) return null;
+  try {
+    const res = await dbClient.query(
+      `INSERT INTO road.notifications (recipient_id, complaint_id, title, message, event_type, metadata, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+       RETURNING *`,
+      [recipient_id, complaint_id || null, title, message, event_type, JSON.stringify(metadata)]
+    );
+    return res.rows[0];
+  } catch (err) {
+    console.error("[Notification Error]:", err.message);
+    return null;
+  }
 }
 
 // -------------------------------------------------------------
@@ -186,11 +210,11 @@ app.post("/api/auth/login", async (req, res) => {
   }
 
   try {
-    // Look up user by user_id, email, or phone matching role
+    // Look up user by user_id, email, or phone matching role (or matching engineer/authority dual-role)
     const result = await pool.query(
       `SELECT user_id, name, email, password_hash, phone, role, created_at
        FROM road.users
-       WHERE role = $1 AND (
+       WHERE (role = $1 OR ($1 = 'ENGINEER' AND user_id = 'AUTHUSER-0001')) AND (
          LOWER(email) = LOWER($2) OR
          LOWER(user_id) = LOWER($2) OR
          phone = $2
@@ -201,13 +225,16 @@ app.post("/api/auth/login", async (req, res) => {
 
     let user = result.rows[0];
 
-    // Support demo aliases if database holds CIT-0001 or AUTHUSER-0001
+    // Support demo aliases if database holds CIT-0001, AUTHUSER-0001, or ENG-0001
     if (!user) {
       if (loginRole === "CITIZEN" && (loginIdent.toLowerCase() === "citizen@margdrishti.demo" || loginIdent.toUpperCase().startsWith("CIT-"))) {
         const fallback = await pool.query(`SELECT * FROM road.users WHERE user_id = 'CIT-0001' AND role = 'CITIZEN'`);
         user = fallback.rows[0];
       } else if (loginRole === "AUTHORITY" && (loginIdent.toLowerCase() === "authority@margdrishti.demo" || loginIdent.toUpperCase().startsWith("AUT"))) {
         const fallback = await pool.query(`SELECT * FROM road.users WHERE user_id = 'AUTHUSER-0001' AND role = 'AUTHORITY'`);
+        user = fallback.rows[0];
+      } else if (loginRole === "ENGINEER" && (loginIdent.toLowerCase().includes("engineer") || loginIdent.toUpperCase().startsWith("ENG-"))) {
+        const fallback = await pool.query(`SELECT * FROM road.users WHERE user_id = 'ENG-0001' AND role = 'ENGINEER'`);
         user = fallback.rows[0];
       }
     }
@@ -216,6 +243,8 @@ app.post("/api/auth/login", async (req, res) => {
       return res.status(404).json({
         message: loginRole === "AUTHORITY"
           ? "Authority account not found. Please contact administration."
+          : loginRole === "ENGINEER"
+          ? "Engineer account not found. Please log in with a registered engineer ID or demo account."
           : "Citizen account not found. Please sign up for a citizen account."
       });
     }
@@ -227,7 +256,8 @@ app.post("/api/auth/login", async (req, res) => {
       user.password_hash === "demo_hash_123" ||
       user.password_hash === "demo_hash_456" ||
       (loginRole === "CITIZEN" && loginPass === "Citizen@123") ||
-      (loginRole === "AUTHORITY" && loginPass === "Authority@123");
+      (loginRole === "AUTHORITY" && loginPass === "Authority@123") ||
+      (loginRole === "ENGINEER" && (loginPass === "Engineer@123" || loginPass === "Authority@123"));
 
     if (!isValidPass) {
       return res.status(401).json({ message: "Incorrect password. Please try again." });
@@ -241,6 +271,7 @@ app.post("/api/auth/login", async (req, res) => {
         user_id: user.user_id,
         citizenId: user.role === "CITIZEN" ? user.user_id : null,
         authorityId: user.role === "AUTHORITY" ? user.user_id : null,
+        engineerId: (user.role === "ENGINEER" || user.user_id === "AUTHUSER-0001") ? user.user_id : null,
         name: user.name,
         email: user.email,
         phone: user.phone,
@@ -266,7 +297,7 @@ app.post("/api/auth/signup", async (req, res) => {
     return res.status(400).json({ message: "Name and email are required." });
   }
 
-  if (signupRole !== "CITIZEN" && signupRole !== "AUTHORITY") {
+  if (signupRole !== "CITIZEN" && signupRole !== "AUTHORITY" && signupRole !== "ENGINEER") {
     return res.status(400).json({ message: "Invalid role specified." });
   }
 
@@ -286,9 +317,7 @@ app.post("/api/auth/signup", async (req, res) => {
     }
 
     // Generate next user_id
-    
-    // Generate the next user ID
-    const prefix = signupRole === "CITIZEN" ? "CIT-" : "AUTHUSER-";
+    const prefix = signupRole === "CITIZEN" ? "CIT-" : signupRole === "ENGINEER" ? "ENG-" : "AUTHUSER-";
 
     const maxRes = await client.query(
       `SELECT user_id
@@ -305,8 +334,8 @@ app.post("/api/auth/signup", async (req, res) => {
       [
         signupRole,
         `${prefix}%`,
-        signupRole === "CITIZEN" ? "^CIT-[0-9]+$" : "^AUTHUSER-[0-9]+$",
-        signupRole === "CITIZEN" ? 5 : 10
+        signupRole === "CITIZEN" ? "^CIT-[0-9]+$" : signupRole === "ENGINEER" ? "^ENG-[0-9]+$" : "^AUTHUSER-[0-9]+$",
+        signupRole === "CITIZEN" ? 5 : signupRole === "ENGINEER" ? 5 : 10
       ]
     );
 
@@ -482,6 +511,25 @@ const complaintId = idResult.rows[0].complaint_id;
     const initialStatus = "REPORTED";
     const now = new Date();
 
+    // Calculate or preserve dynamic explainable priority breakdown
+    const reqBreakdown = req.body.priority_breakdown || req.body.priority?.breakdown;
+    let finalPriorityScore = priority_score != null ? Number(priority_score) : null;
+    let finalBreakdown = reqBreakdown;
+
+    if (!finalBreakdown || finalPriorityScore == null) {
+      const calcP = PriorityEngine.calculatePriority({
+        damageType: damage_type,
+        severity,
+        confidence: ai_analysis?.confidence != null ? (Number(ai_analysis.confidence) > 1 ? Number(ai_analysis.confidence) / 100 : Number(ai_analysis.confidence)) : 0.92,
+        roadType: req.body.road_type || "ARTERIAL",
+        trafficExposure: req.body.traffic_exposure || "HIGH",
+        sensitiveZones: req.body.sensitive_zones || ["SCHOOL", "TRANSIT"],
+        corroboratingCount: req.body.corroborating_count || 1
+      });
+      if (finalPriorityScore == null) finalPriorityScore = calcP.score;
+      if (!finalBreakdown) finalBreakdown = calcP.breakdown;
+    }
+
     // 1. Save Complaint
     const complaintResult = await client.query(
       `INSERT INTO road.complaints (
@@ -493,12 +541,13 @@ const complaintId = idResult.rows[0].complaint_id;
         image_path,
         severity,
         priority_score,
+        priority_breakdown,
         status,
         complaint_date,
         created_at,
         updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $10)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $11)
       RETURNING *`,
       [
         complaintId,
@@ -508,18 +557,20 @@ const complaintId = idResult.rows[0].complaint_id;
         description ?? null,
         image_path ?? null,
         String(severity ?? "HIGH").trim().toUpperCase().slice(0, 20),
-        priority_score != null ? Number(priority_score) : null,
+        finalPriorityScore,
+        JSON.stringify(finalBreakdown),
         initialStatus,
         now,
       ]
     );
 
     console.log("Complaint values being saved:", {
-  severity,
-  severityLength: String(severity ?? "").length,
-  location_source,
-  locationSourceLength: String(location_source ?? "").length
-});
+      severity,
+      severityLength: String(severity ?? "").length,
+      location_source,
+      locationSourceLength: String(location_source ?? "").length,
+      priority_score: finalPriorityScore
+    });
     // 2. Save Location
     const locationResult = await client.query(
       `INSERT INTO road.complaint_locations (
@@ -543,11 +594,11 @@ const complaintId = idResult.rows[0].complaint_id;
         district ?? "Kolhapur",
         state ?? "Maharashtra",
         ["GPS", "MANUAL", "MAP_SELECTED"].includes(
-  String(location_source ?? "").trim().toUpperCase()
-)
-  ? String(location_source).trim().toUpperCase()
-  : "GPS",
-        ]
+          String(location_source ?? "").trim().toUpperCase()
+        )
+          ? String(location_source).trim().toUpperCase()
+          : "GPS",
+      ]
     );
 
     // 3. Save AI Analysis
@@ -556,7 +607,7 @@ const complaintId = idResult.rows[0].complaint_id;
       : 92.50;
     const aiModel = ai_analysis?.model_name || "YOLO11";
     const aiSeverity = String(
-    ai_analysis?.severity || severity || "HIGH"
+      ai_analysis?.severity || severity || "HIGH"
     ).trim().toUpperCase().slice(0, 20);
     const aiDamageType = ai_analysis?.damage_type || damage_type.trim();
     const aiAuthenticity = ai_analysis?.image_authenticity_status || "ORIGINAL";
@@ -604,6 +655,25 @@ const complaintId = idResult.rows[0].complaint_id;
       ]
     );
 
+    // Dispatch Connected In-App Notifications
+    await createNotification(client, {
+      recipient_id: verifiedCitizenId,
+      complaint_id: complaintId,
+      title: "Complaint Received Successfully",
+      message: `Your complaint ${complaintId} has been received and recorded by the system.`,
+      event_type: "COMPLAINT_SUBMITTED",
+      metadata: { priority_score: finalPriorityScore, damage_type: damage_type.trim() }
+    });
+
+    await createNotification(client, {
+      recipient_id: "AUTHUSER-0001",
+      complaint_id: complaintId,
+      title: "New Road Hazard Complaint",
+      message: `New complaint ${complaintId} reported at ${address || city || "Kolhapur"}. Priority: ${finalPriorityScore}/100.`,
+      event_type: "NEW_COMPLAINT_REPORTED",
+      metadata: { priority_score: finalPriorityScore, damage_type: damage_type.trim() }
+    });
+
     await client.query("COMMIT");
 
     return res.status(201).json({
@@ -647,6 +717,7 @@ app.get("/api/complaints", async (req, res) => {
           c.image_path,
           c.severity,
           c.priority_score,
+          c.priority_breakdown,
           c.status,
           c.complaint_date,
           c.created_at,
@@ -667,13 +738,20 @@ app.get("/api/complaints", async (req, res) => {
           asn.assignment_id,
           asn.assigned_to,
           asn_u.name AS assigned_to_name,
+          asn_u.phone AS assigned_to_phone,
           asn.assigned_at,
+          asn.expected_completion_date,
+          asn.status AS assignment_status,
+          asn.acknowledged_at,
           asn.remarks AS assignment_remarks,
           rep.repair_id,
           rep.engineer_id,
           rep.repair_started_at,
           rep.repair_completed_at,
           rep.repair_status,
+          rep.progress_pct,
+          rep.repair_notes,
+          rep.completion_image_path,
           rep.repair_description,
           rm.monitoring_id,
           rm.start_date AS monitoring_start_date,
@@ -694,7 +772,7 @@ app.get("/api/complaints", async (req, res) => {
        ) ai ON true
        LEFT JOIN LATERAL (
          SELECT * FROM road.assignments
-         WHERE complaint_id = c.complaint_id
+         WHERE complaint_id = c.complaint_id AND status != 'SUPERSEDED'
          ORDER BY assigned_at DESC LIMIT 1
        ) asn ON true
        LEFT JOIN road.users asn_u ON asn_u.user_id = asn.assigned_to
@@ -714,9 +792,29 @@ app.get("/api/complaints", async (req, res) => {
       [citizen_id || null, status || null]
     );
 
+    const complaints = result.rows.map((row) => {
+      if (!row.priority_breakdown) {
+        const confNum = row.ai_confidence ? (Number(row.ai_confidence) > 1 ? Number(row.ai_confidence) / 100 : Number(row.ai_confidence)) : 0.92;
+        const calculated = PriorityEngine.calculatePriority({
+          damageType: row.damage_type,
+          severity: row.severity || row.ai_severity,
+          confidence: confNum,
+          detectionCount: 1,
+          surfaceDamageAreaPct: 0,
+          roadType: "ARTERIAL",
+          trafficExposure: "HIGH",
+          sensitiveZones: ["SCHOOL", "TRANSIT"],
+          corroboratingCount: 1
+        });
+        row.priority_breakdown = calculated.breakdown;
+        if (!row.priority_score) row.priority_score = calculated.score;
+      }
+      return row;
+    });
+
     res.json({
-      count: result.rowCount,
-      complaints: result.rows,
+      count: complaints.length,
+      complaints,
     });
   } catch (error) {
     console.error("Fetch complaints error:", error.message);
@@ -753,13 +851,20 @@ app.get("/api/complaints/:id", async (req, res) => {
           asn.assignment_id,
           asn.assigned_to,
           asn_u.name AS assigned_to_name,
+          asn_u.phone AS assigned_to_phone,
           asn.assigned_at,
+          asn.expected_completion_date,
+          asn.status AS assignment_status,
+          asn.acknowledged_at,
           asn.remarks AS assignment_remarks,
           rep.repair_id,
           rep.engineer_id,
           rep.repair_started_at,
           rep.repair_completed_at,
           rep.repair_status,
+          rep.progress_pct,
+          rep.repair_notes,
+          rep.completion_image_path,
           rep.repair_description,
           rm.monitoring_id,
           rm.start_date AS monitoring_start_date,
@@ -780,7 +885,7 @@ app.get("/api/complaints/:id", async (req, res) => {
        ) ai ON true
        LEFT JOIN LATERAL (
          SELECT * FROM road.assignments
-         WHERE complaint_id = c.complaint_id
+         WHERE complaint_id = c.complaint_id AND status != 'SUPERSEDED'
          ORDER BY assigned_at DESC LIMIT 1
        ) asn ON true
        LEFT JOIN road.users asn_u ON asn_u.user_id = asn.assigned_to
@@ -803,6 +908,24 @@ app.get("/api/complaints/:id", async (req, res) => {
     }
 
     const complaint = complaintRes.rows[0];
+
+    // Ensure dynamic explainable priority breakdown is present
+    if (!complaint.priority_breakdown) {
+      const confNum = complaint.ai_confidence ? (Number(complaint.ai_confidence) > 1 ? Number(complaint.ai_confidence) / 100 : Number(complaint.ai_confidence)) : 0.92;
+      const calculated = PriorityEngine.calculatePriority({
+        damageType: complaint.damage_type,
+        severity: complaint.severity || complaint.ai_severity,
+        confidence: confNum,
+        detectionCount: 1,
+        surfaceDamageAreaPct: 0,
+        roadType: "ARTERIAL",
+        trafficExposure: "HIGH",
+        sensitiveZones: ["SCHOOL", "TRANSIT"],
+        corroboratingCount: 1
+      });
+      complaint.priority_breakdown = calculated.breakdown;
+      if (!complaint.priority_score) complaint.priority_score = calculated.score;
+    }
 
     // Fetch complete status history timeline
     const historyRes = await pool.query(
@@ -968,39 +1091,233 @@ app.post("/api/complaints/:id/verify", async (req, res) => {
 });
 
 // -------------------------------------------------------------
-// Authority Workflow: Assign Engineer / Authority
+// Available Engineers Endpoint (Authority Assignment)
+// -------------------------------------------------------------
+app.get("/api/engineers", async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        u.user_id,
+        u.name,
+        u.email,
+        u.phone,
+        u.role,
+        CASE 
+          WHEN u.user_id = 'ENG-0001' THEN 'Assistant Executive Engineer'
+          WHEN u.user_id = 'ENG-0002' THEN 'Junior Engineer (Civil)'
+          WHEN u.user_id = 'ENG-0003' THEN 'Senior PWD Field Engineer'
+          WHEN u.user_id = 'AUTHUSER-0001' THEN 'Municipal Engineer'
+          ELSE 'Zonal Road Engineer'
+        END AS designation,
+        CASE 
+          WHEN u.user_id = 'ENG-0001' THEN 'East Zone & Central Corridor'
+          WHEN u.user_id = 'ENG-0002' THEN 'South Zone & Residential Wards'
+          WHEN u.user_id = 'ENG-0003' THEN 'North Zone & Highway Link'
+          ELSE 'Kolhapur City Central'
+        END AS zone,
+        COUNT(c.complaint_id) FILTER (WHERE c.status IN ('ASSIGNED', 'IN_PROGRESS'))::int AS active_tasks,
+        TRUE AS is_demo_account
+      FROM road.users u
+      LEFT JOIN road.assignments asn ON asn.assigned_to = u.user_id AND asn.status != 'SUPERSEDED'
+      LEFT JOIN road.complaints c ON c.complaint_id = asn.complaint_id AND c.status IN ('ASSIGNED', 'IN_PROGRESS')
+      WHERE u.role IN ('ENGINEER', 'AUTHORITY')
+      GROUP BY u.user_id, u.name, u.email, u.phone, u.role
+      ORDER BY active_tasks ASC, u.name ASC
+    `);
+
+    res.json({ count: result.rowCount, engineers: result.rows });
+  } catch (error) {
+    console.error("Fetch engineers error:", error.message);
+    res.status(500).json({ message: "Failed to fetch engineers.", error: error.message });
+  }
+});
+
+// -------------------------------------------------------------
+// Connected In-App Notification Endpoints
+// -------------------------------------------------------------
+app.get("/api/notifications", async (req, res) => {
+  const recipientId = req.query.recipient_id || req.headers["x-user-id"];
+  if (!recipientId) {
+    return res.status(400).json({ message: "Recipient user ID is required." });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT notification_id, recipient_id, complaint_id, title, message, event_type, is_read, metadata, created_at
+       FROM road.notifications
+       WHERE recipient_id = $1
+       ORDER BY created_at DESC
+       LIMIT 50`,
+      [recipientId]
+    );
+
+    const unreadCount = await pool.query(
+      `SELECT COUNT(*)::int AS count FROM road.notifications WHERE recipient_id = $1 AND is_read = false`,
+      [recipientId]
+    );
+
+    res.json({
+      count: result.rowCount,
+      unread_count: unreadCount.rows[0].count,
+      notifications: result.rows
+    });
+  } catch (error) {
+    console.error("Fetch notifications error:", error.message);
+    res.status(500).json({ message: "Failed to fetch notifications.", error: error.message });
+  }
+});
+
+app.patch("/api/notifications/:id/read", async (req, res) => {
+  const { id } = req.params;
+  const recipientId = req.body.recipient_id || req.headers["x-user-id"];
+
+  try {
+    const result = await pool.query(
+      `UPDATE road.notifications
+       SET is_read = true
+       WHERE notification_id = $1 AND ($2::varchar IS NULL OR recipient_id = $2)
+       RETURNING *`,
+      [id, recipientId || null]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ message: "Notification not found." });
+    }
+
+    res.json({ success: true, notification: result.rows[0] });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to update notification.", error: error.message });
+  }
+});
+
+app.patch("/api/notifications/read-all", async (req, res) => {
+  const recipientId = req.body.recipient_id || req.headers["x-user-id"];
+  if (!recipientId) {
+    return res.status(400).json({ message: "Recipient user ID is required." });
+  }
+
+  try {
+    await pool.query(
+      `UPDATE road.notifications
+       SET is_read = true
+       WHERE recipient_id = $1 AND is_read = false`,
+      [recipientId]
+    );
+
+    res.json({ success: true, message: "All notifications marked as read." });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to mark notifications read.", error: error.message });
+  }
+});
+
+app.get("/api/notifications/unread-count", async (req, res) => {
+  const recipientId = req.query.recipient_id || req.headers["x-user-id"];
+  if (!recipientId) {
+    return res.json({ unread_count: 0 });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT COUNT(*)::int AS count FROM road.notifications WHERE recipient_id = $1 AND is_read = false`,
+      [recipientId]
+    );
+    res.json({ unread_count: result.rows[0].count });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to count unread notifications.", error: error.message });
+  }
+});
+
+// -------------------------------------------------------------
+// Authority Workflow: Assign Engineer (Realistic Connected Workflow)
 // -------------------------------------------------------------
 app.post("/api/complaints/:id/assign", async (req, res) => {
   const { id } = req.params;
-  const { assigned_to, assigned_by, remarks } = req.body;
+  const { assigned_to, assigned_by, remarks, expected_completion_date } = req.body;
+
+  if (!assigned_to) {
+    return res.status(400).json({ message: "Engineering personnel selection is required." });
+  }
 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
-    // Resolve assigned_to to a valid authority user in road.users
-    let toUser = (assigned_to || "").trim();
-    let toCheck = await client.query(`SELECT user_id FROM road.users WHERE user_id = $1`, [toUser]);
-    if (toCheck.rowCount === 0) {
-      // Default to existing authority engineer
-      toUser = "AUTHUSER-0001";
-    }
-
-    let byUser = (assigned_by || "").trim();
-    let byCheck = await client.query(`SELECT user_id FROM road.users WHERE user_id = $1`, [byUser]);
-    if (byCheck.rowCount === 0) {
-      byUser = "AUTHUSER-0001";
-    }
-
-    // Insert assignment
-    const assignRes = await client.query(
-      `INSERT INTO road.assignments (complaint_id, assigned_to, assigned_by, assigned_at, remarks)
-       VALUES ($1, $2, $3, NOW(), $4)
-       RETURNING *`,
-      [id, toUser, byUser, remarks || "Assigned for road inspection and repair."]
+    // 1. Lock complaint row to prevent race conditions & duplicate clicks
+    const cRes = await client.query(
+      `SELECT c.complaint_id, c.citizen_id, c.damage_type, c.severity, c.priority_score, c.status,
+              l.address, l.city, l.latitude, l.longitude
+       FROM road.complaints c
+       LEFT JOIN road.complaint_locations l ON l.complaint_id = c.complaint_id
+       WHERE c.complaint_id = $1
+       FOR UPDATE OF c`,
+      [id]
     );
 
-    // Update complaint status
+    if (cRes.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ message: `Complaint '${id}' not found.` });
+    }
+    const complaint = cRes.rows[0];
+
+    // 2. Validate assigned_to engineer in road.users
+    const engCheck = await client.query(
+      `SELECT user_id, name, email, phone, role FROM road.users WHERE user_id = $1 AND role IN ('ENGINEER', 'AUTHORITY')`,
+      [assigned_to.trim()]
+    );
+    if (engCheck.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ message: `Selected engineer '${assigned_to}' is not a valid registered engineer.` });
+    }
+    const engineer = engCheck.rows[0];
+
+    // 3. Validate assigning authority
+    let byUser = (assigned_by || "AUTHUSER-0001").trim();
+    const byCheck = await client.query(`SELECT user_id, name FROM road.users WHERE user_id = $1`, [byUser]);
+    if (byCheck.rowCount === 0) byUser = "AUTHUSER-0001";
+
+    // 4. Check for previous active assignment on this complaint
+    const prevAssignRes = await client.query(
+      `SELECT assignment_id, assigned_to FROM road.assignments WHERE complaint_id = $1 AND status != 'SUPERSEDED' ORDER BY assigned_at DESC LIMIT 1`,
+      [id]
+    );
+    const isReassignment = prevAssignRes.rowCount > 0 && prevAssignRes.rows[0].assigned_to !== engineer.user_id;
+    const prevEngineerId = prevAssignRes.rows[0]?.assigned_to;
+
+    // Prevent accidental duplicate clicks if already assigned to this exact engineer
+    if (prevAssignRes.rowCount > 0 && prevAssignRes.rows[0].assigned_to === engineer.user_id && complaint.status === 'ASSIGNED') {
+      await client.query("COMMIT");
+      return res.json({
+        success: true,
+        message: `Complaint ${id} is already assigned to ${engineer.name}.`,
+        complaint,
+        assignment: prevAssignRes.rows[0],
+        duplicate_prevented: true
+      });
+    }
+
+    if (prevAssignRes.rowCount > 0) {
+      // Mark previous assignment as superseded to preserve assignment history
+      await client.query(
+        `UPDATE road.assignments SET status = 'SUPERSEDED' WHERE complaint_id = $1`,
+        [id]
+      );
+    }
+
+    // 5. Insert new assignment record
+    const assignRes = await client.query(
+      `INSERT INTO road.assignments (complaint_id, assigned_to, assigned_by, assigned_at, expected_completion_date, remarks, status)
+       VALUES ($1, $2, $3, NOW(), $4, $5, 'ASSIGNED')
+       RETURNING *`,
+      [
+        id,
+        engineer.user_id,
+        byUser,
+        expected_completion_date || null,
+        remarks || `Work order dispatched to ${engineer.name} for road repair.`
+      ]
+    );
+
+    // 6. Update complaint status consistently
     const updateRes = await client.query(
       `UPDATE road.complaints
        SET status = 'ASSIGNED', updated_at = NOW()
@@ -1009,31 +1326,571 @@ app.post("/api/complaints/:id/assign", async (req, res) => {
       [id]
     );
 
-    if (updateRes.rowCount === 0) {
-      await client.query("ROLLBACK");
-      return res.status(404).json({ message: "Complaint not found." });
-    }
-
-    // Record history
+    // 7. Record status history
     const histRes = await client.query(
       `INSERT INTO road.complaint_status_history (complaint_id, status, changed_by, remarks, changed_at)
        VALUES ($1, 'ASSIGNED', $2, $3, NOW())
        RETURNING *`,
-      [id, byUser, remarks || `Work order assigned to ${toUser}. Minimum 15-day assignment period initiated.`]
+      [
+        id,
+        byUser,
+        isReassignment
+          ? `Work order reassigned from ${prevEngineerId} to ${engineer.name} (${engineer.user_id}).`
+          : `Work order assigned to ${engineer.name} (${engineer.user_id}). Minimum 15-day assignment period initiated.`
+      ]
     );
+
+    // 8. Notifications
+    const locStr = complaint.address || complaint.city || "Indiranagar Corridor";
+    const prioScore = complaint.priority_score ? Number(complaint.priority_score) : 75;
+    const prioLevel = prioScore >= 80 ? "Critical" : prioScore >= 60 ? "High" : "Medium";
+
+    // Engineer notification
+    await createNotification(client, {
+      recipient_id: engineer.user_id,
+      complaint_id: id,
+      title: "New Repair Task Assigned",
+      message: `You have been assigned complaint ${id} for road damage repair at ${locStr}. Priority: ${prioLevel}. Open the task to view the evidence and location.`,
+      event_type: "ENGINEER_ASSIGNED",
+      metadata: { priority_score: prioScore, damage_type: complaint.damage_type, location: locStr }
+    });
+
+    // Citizen notification
+    if (complaint.citizen_id) {
+      await createNotification(client, {
+        recipient_id: complaint.citizen_id,
+        complaint_id: id,
+        title: "Engineer Assigned to Your Complaint",
+        message: `Engineer ${engineer.name} has been assigned to your complaint ${id} for road inspection and repair at ${locStr}.`,
+        event_type: "ENGINEER_ASSIGNED",
+        metadata: { engineer_id: engineer.user_id, engineer_name: engineer.name }
+      });
+    }
+
+    // If reassigned, notify previous engineer
+    if (isReassignment && prevEngineerId) {
+      await createNotification(client, {
+        recipient_id: prevEngineerId,
+        complaint_id: id,
+        title: "Assignment Transferred",
+        message: `Complaint ${id} assignment has been transferred to ${engineer.name}.`,
+        event_type: "ASSIGNMENT_REASSIGNED",
+        metadata: { reassigned_to: engineer.user_id }
+      });
+    }
 
     await client.query("COMMIT");
 
     res.json({
       success: true,
+      message: `Complaint ${id} assigned to ${engineer.name}.`,
       complaint: updateRes.rows[0],
       assignment: assignRes.rows[0],
       history: histRes.rows[0],
+      engineer: {
+        id: engineer.user_id,
+        name: engineer.name,
+        email: engineer.email,
+        phone: engineer.phone
+      }
     });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
     console.error("Assign error:", error);
     res.status(500).json({ message: "Failed to assign complaint.", error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+// -------------------------------------------------------------
+// Engineer Workspace Tasks & Lifecycle Actions
+// -------------------------------------------------------------
+app.get("/api/engineer/tasks", async (req, res) => {
+  const engineerId = req.query.engineer_id || req.headers["x-engineer-id"] || "ENG-0001";
+
+  try {
+    const result = await pool.query(
+      `SELECT 
+          c.complaint_id,
+          c.citizen_id,
+          u.name AS citizen_name,
+          u.phone AS citizen_phone,
+          c.damage_type,
+          c.description,
+          c.image_path,
+          c.severity,
+          c.priority_score,
+          c.priority_breakdown,
+          c.status,
+          c.complaint_date,
+          c.created_at,
+          c.updated_at,
+          l.location_id,
+          l.latitude,
+          l.longitude,
+          l.address,
+          l.city,
+          l.district,
+          l.state,
+          l.location_source,
+          ai.model_name AS ai_model,
+          ai.confidence AS ai_confidence,
+          ai.severity AS ai_severity,
+          ai.image_authenticity_status AS ai_authenticity,
+          asn.assignment_id,
+          asn.assigned_to,
+          asn.assigned_by,
+          asn.assigned_at,
+          asn.expected_completion_date,
+          asn.status AS assignment_status,
+          asn.acknowledged_at,
+          asn.remarks AS assignment_remarks,
+          rep.repair_id,
+          rep.repair_started_at,
+          rep.repair_completed_at,
+          rep.repair_status,
+          rep.progress_pct,
+          rep.repair_notes,
+          rep.completion_image_path,
+          rep.repair_description
+       FROM road.complaints c
+       JOIN road.assignments asn ON asn.complaint_id = c.complaint_id AND asn.status != 'SUPERSEDED'
+       LEFT JOIN road.users u ON u.user_id = c.citizen_id
+       LEFT JOIN road.complaint_locations l ON l.complaint_id = c.complaint_id
+       LEFT JOIN LATERAL (
+         SELECT * FROM road.ai_analysis WHERE complaint_id = c.complaint_id ORDER BY analyzed_at DESC LIMIT 1
+       ) ai ON true
+       LEFT JOIN LATERAL (
+         SELECT * FROM road.repairs WHERE complaint_id = c.complaint_id ORDER BY repair_id DESC LIMIT 1
+       ) rep ON true
+       WHERE asn.assigned_to = $1
+       ORDER BY 
+         CASE WHEN c.status = 'ASSIGNED' THEN 1 WHEN c.status = 'IN_PROGRESS' THEN 2 ELSE 3 END,
+         c.priority_score DESC NULLS LAST,
+         c.created_at DESC`,
+      [engineerId]
+    );
+
+    const tasks = result.rows.map((row) => {
+      if (!row.priority_breakdown) {
+        const confNum = row.ai_confidence ? (Number(row.ai_confidence) > 1 ? Number(row.ai_confidence) / 100 : Number(row.ai_confidence)) : 0.92;
+        const calculated = PriorityEngine.calculatePriority({
+          damageType: row.damage_type,
+          severity: row.severity || row.ai_severity,
+          confidence: confNum,
+          detectionCount: 1,
+          surfaceDamageAreaPct: 0,
+          roadType: "ARTERIAL",
+          trafficExposure: "HIGH",
+          sensitiveZones: ["SCHOOL", "TRANSIT"],
+          corroboratingCount: 1
+        });
+        row.priority_breakdown = calculated.breakdown;
+        if (!row.priority_score) row.priority_score = calculated.score;
+      }
+      return row;
+    });
+
+    res.json({ count: tasks.length, tasks });
+  } catch (err) {
+    console.error("Fetch engineer tasks error:", err);
+    res.status(500).json({ message: "Failed to fetch engineer tasks.", error: err.message });
+  }
+});
+
+app.post("/api/engineer/tasks/:id/acknowledge", async (req, res) => {
+  const { id } = req.params;
+  const engineerId = req.body.engineer_id || req.headers["x-engineer-id"] || "ENG-0001";
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Verify task assignment
+    const asnCheck = await client.query(
+      `SELECT asn.*, u.name AS engineer_name
+       FROM road.assignments asn
+       JOIN road.users u ON u.user_id = asn.assigned_to
+       WHERE asn.complaint_id = $1 AND asn.assigned_to = $2 AND asn.status != 'SUPERSEDED'
+       LIMIT 1`,
+      [id, engineerId]
+    );
+
+    if (asnCheck.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ message: "You are not authorized to acknowledge this complaint or it is not assigned to you." });
+    }
+
+    const asnRow = asnCheck.rows[0];
+
+    const uAsn = await client.query(
+      `UPDATE road.assignments
+       SET acknowledged_at = NOW(), status = 'ACKNOWLEDGED'
+       WHERE assignment_id = $1
+       RETURNING *`,
+      [asnRow.assignment_id]
+    );
+
+    await client.query(
+      `INSERT INTO road.complaint_status_history (complaint_id, status, changed_by, remarks, changed_at)
+       VALUES ($1, 'ASSIGNED', $2, $3, NOW())`,
+      [id, engineerId, `Task acknowledged and accepted by Engineer ${asnRow.engineer_name}. Preparing deployment.`]
+    );
+
+    // Notify authority
+    await createNotification(client, {
+      recipient_id: "AUTHUSER-0001",
+      complaint_id: id,
+      title: "Task Acknowledged by Engineer",
+      message: `Engineer ${asnRow.engineer_name} has acknowledged assignment for complaint ${id}.`,
+      event_type: "TASK_ACKNOWLEDGED",
+      metadata: { engineer_id: engineerId }
+    });
+
+    await client.query("COMMIT");
+
+    res.json({ success: true, message: "Task acknowledged successfully.", assignment: uAsn.rows[0] });
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    res.status(500).json({ message: "Failed to acknowledge task.", error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+app.post("/api/engineer/tasks/:id/start-repair", async (req, res) => {
+  const { id } = req.params;
+  const { description } = req.body;
+  const engineerId = req.body.engineer_id || req.headers["x-engineer-id"] || "ENG-0001";
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Verify assignment
+    const asnCheck = await client.query(
+      `SELECT asn.*, u.name AS engineer_name
+       FROM road.assignments asn
+       JOIN road.users u ON u.user_id = asn.assigned_to
+       WHERE asn.complaint_id = $1 AND asn.assigned_to = $2 AND asn.status != 'SUPERSEDED'
+       LIMIT 1`,
+      [id, engineerId]
+    );
+
+    if (asnCheck.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ message: "You are not authorized to start repair on this complaint." });
+    }
+
+    const engineerName = asnCheck.rows[0].engineer_name;
+
+    // Upsert repair record
+    const repCheck = await client.query(`SELECT repair_id FROM road.repairs WHERE complaint_id = $1 LIMIT 1`, [id]);
+    let repairRow;
+
+    if (repCheck.rowCount > 0) {
+      const uRep = await client.query(
+        `UPDATE road.repairs
+         SET repair_started_at = COALESCE(repair_started_at, NOW()),
+             repair_status = 'IN_PROGRESS',
+             progress_pct = GREATEST(progress_pct, 10),
+             repair_description = COALESCE($1, repair_description)
+         WHERE repair_id = $2
+         RETURNING *`,
+        [description || "Field repair crew mobilized on site.", repCheck.rows[0].repair_id]
+      );
+      repairRow = uRep.rows[0];
+    } else {
+      const iRep = await client.query(
+        `INSERT INTO road.repairs (complaint_id, engineer_id, repair_started_at, repair_status, progress_pct, repair_description)
+         VALUES ($1, $2, NOW(), 'IN_PROGRESS', 10, $3)
+         RETURNING *`,
+        [id, engineerId, description || "Field repair crew mobilized on site."]
+      );
+      repairRow = iRep.rows[0];
+    }
+
+    // Update complaint status
+    const uC = await client.query(
+      `UPDATE road.complaints SET status = 'IN_PROGRESS', updated_at = NOW() WHERE complaint_id = $1 RETURNING *`,
+      [id]
+    );
+
+    // Record status history
+    await client.query(
+      `INSERT INTO road.complaint_status_history (complaint_id, status, changed_by, remarks, changed_at)
+       VALUES ($1, 'IN_PROGRESS', $2, $3, NOW())`,
+      [id, engineerId, description || `Repair operations commenced on site by Engineer ${engineerName}.`]
+    );
+
+    // Notifications
+    const locMeta = await client.query(`SELECT address, city FROM road.complaint_locations WHERE complaint_id = $1`, [id]);
+    const locStr = locMeta.rows[0]?.address || locMeta.rows[0]?.city || "the reported road";
+    const citizenId = uC.rows[0].citizen_id;
+
+    if (citizenId) {
+      await createNotification(client, {
+        recipient_id: citizenId,
+        complaint_id: id,
+        title: "Repair Work Started",
+        message: `Repair work has started at ${locStr} for your complaint ${id}.`,
+        event_type: "REPAIR_STARTED",
+        metadata: { engineer_name: engineerName }
+      });
+    }
+
+    await createNotification(client, {
+      recipient_id: "AUTHUSER-0001",
+      complaint_id: id,
+      title: "Repair Work Started by Engineer",
+      message: `Engineer ${engineerName} has commenced repair work for complaint ${id} at ${locStr}.`,
+      event_type: "REPAIR_STARTED",
+      metadata: { engineer_id: engineerId }
+    });
+
+    await client.query("COMMIT");
+
+    res.json({ success: true, message: "Repair work marked in progress.", complaint: uC.rows[0], repair: repairRow });
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    res.status(500).json({ message: "Failed to start repair.", error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+app.post("/api/engineer/tasks/:id/update-progress", async (req, res) => {
+  const { id } = req.params;
+  const { progress_pct, notes } = req.body;
+  const engineerId = req.body.engineer_id || req.headers["x-engineer-id"] || "ENG-0001";
+  const progressNum = Math.min(100, Math.max(0, parseInt(progress_pct, 10) || 50));
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Verify assignment
+    const asnCheck = await client.query(
+      `SELECT asn.*, u.name AS engineer_name
+       FROM road.assignments asn
+       JOIN road.users u ON u.user_id = asn.assigned_to
+       WHERE asn.complaint_id = $1 AND asn.assigned_to = $2 AND asn.status != 'SUPERSEDED'
+       LIMIT 1`,
+      [id, engineerId]
+    );
+
+    if (asnCheck.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ message: "You are not authorized to update progress on this complaint." });
+    }
+
+    const engineerName = asnCheck.rows[0].engineer_name;
+
+    // Update repair record
+    const repCheck = await client.query(`SELECT repair_id FROM road.repairs WHERE complaint_id = $1 LIMIT 1`, [id]);
+    let repairRow;
+
+    if (repCheck.rowCount > 0) {
+      const uRep = await client.query(
+        `UPDATE road.repairs
+         SET progress_pct = $1,
+             repair_notes = COALESCE($2, repair_notes)
+         WHERE repair_id = $3
+         RETURNING *`,
+        [progressNum, notes || `Progress updated to ${progressNum}% by field engineer.`, repCheck.rows[0].repair_id]
+      );
+      repairRow = uRep.rows[0];
+    } else {
+      const iRep = await client.query(
+        `INSERT INTO road.repairs (complaint_id, engineer_id, repair_started_at, repair_status, progress_pct, repair_notes)
+         VALUES ($1, $2, NOW(), 'IN_PROGRESS', $3, $4)
+         RETURNING *`,
+        [id, engineerId, progressNum, notes || `Progress updated to ${progressNum}% by field engineer.`]
+      );
+      repairRow = iRep.rows[0];
+    }
+
+    // Record status history update
+    await client.query(
+      `INSERT INTO road.complaint_status_history (complaint_id, status, changed_by, remarks, changed_at)
+       VALUES ($1, 'IN_PROGRESS', $2, $3, NOW())`,
+      [id, engineerId, `Repair progress updated to ${progressNum}% by Engineer ${engineerName}. Note: ${notes || 'Work advancing on site.'}`]
+    );
+
+    // If progress reaches 90%, dispatch specific 90% notifications
+    const cMeta = await client.query(`SELECT citizen_id FROM road.complaints WHERE complaint_id = $1`, [id]);
+    const citizenId = cMeta.rows[0]?.citizen_id;
+
+    if (progressNum === 90) {
+      if (citizenId) {
+        await createNotification(client, {
+          recipient_id: citizenId,
+          complaint_id: id,
+          title: "Repair Progress: 90% Completed",
+          message: `Repair progress is reported as 90% for complaint ${id}.`,
+          event_type: "REPAIR_PROGRESS_90",
+          metadata: { progress_pct: 90, notes }
+        });
+      }
+
+      await createNotification(client, {
+        recipient_id: "AUTHUSER-0001",
+        complaint_id: id,
+        title: "Engineer Reported 90% Progress",
+        message: `Engineer ${engineerName} has updated repair progress to 90% for complaint ${id}.`,
+        event_type: "REPAIR_PROGRESS_90",
+        metadata: { progress_pct: 90, engineer_id: engineerId }
+      });
+    }
+
+    await client.query("COMMIT");
+
+    res.json({
+      success: true,
+      message: `Progress updated to ${progressNum}%.`,
+      repair: repairRow,
+      progress_pct: progressNum
+    });
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    res.status(500).json({ message: "Failed to update repair progress.", error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+app.post("/api/engineer/tasks/:id/submit-completion", async (req, res) => {
+  const { id } = req.params;
+  const { completion_image_path, notes, materials_used, monitoring_days } = req.body;
+  const engineerId = req.body.engineer_id || req.headers["x-engineer-id"] || "ENG-0001";
+  const days = Number(monitoring_days) || 60;
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Verify assignment
+    const asnCheck = await client.query(
+      `SELECT asn.*, u.name AS engineer_name
+       FROM road.assignments asn
+       JOIN road.users u ON u.user_id = asn.assigned_to
+       WHERE asn.complaint_id = $1 AND asn.assigned_to = $2 AND asn.status != 'SUPERSEDED'
+       LIMIT 1`,
+      [id, engineerId]
+    );
+
+    if (asnCheck.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ message: "You are not authorized to submit completion for this complaint." });
+    }
+
+    const engineerName = asnCheck.rows[0].engineer_name;
+
+    // 1. Update repairs table
+    const repCheck = await client.query(`SELECT repair_id FROM road.repairs WHERE complaint_id = $1 LIMIT 1`, [id]);
+    let repairId;
+    let repairRow;
+
+    const fullDesc = `Repaired road surface: ${notes || 'Bitumen asphalt mix compacted & leveled.'}${materials_used ? ` (Materials: ${materials_used})` : ''}`;
+
+    if (repCheck.rowCount > 0) {
+      repairId = repCheck.rows[0].repair_id;
+      const uRep = await client.query(
+        `UPDATE road.repairs
+         SET repair_completed_at = NOW(),
+             repair_status = 'COMPLETED',
+             progress_pct = 100,
+             completion_image_path = COALESCE($1, completion_image_path),
+             repair_description = $2,
+             repair_notes = COALESCE($3, repair_notes)
+         WHERE repair_id = $4
+         RETURNING *`,
+        [completion_image_path || null, fullDesc, notes || "Physical road repair completed on site.", repairId]
+      );
+      repairRow = uRep.rows[0];
+    } else {
+      const iRep = await client.query(
+        `INSERT INTO road.repairs (
+           complaint_id, engineer_id, repair_started_at, repair_completed_at, repair_status, progress_pct,
+           completion_image_path, repair_description, repair_notes
+         )
+         VALUES ($1, $2, NOW() - INTERVAL '1 day', NOW(), 'COMPLETED', 100, $3, $4, $5)
+         RETURNING *`,
+        [id, engineerId, completion_image_path || null, fullDesc, notes || "Physical road repair completed on site."]
+      );
+      repairId = iRep.rows[0].repair_id;
+      repairRow = iRep.rows[0];
+    }
+
+    // 2. Initialize or update post-repair monitoring (60 days)
+    const monCheck = await client.query(`SELECT monitoring_id FROM road.repair_monitoring WHERE repair_id = $1 LIMIT 1`, [repairId]);
+    if (monCheck.rowCount > 0) {
+      await client.query(
+        `UPDATE road.repair_monitoring
+         SET start_date = CURRENT_DATE,
+             end_date = CURRENT_DATE + ($1 || ' days')::interval,
+             monitoring_status = 'IN_PROGRESS',
+             authority_confirmation = false
+         WHERE monitoring_id = $2`,
+        [days, monCheck.rows[0].monitoring_id]
+      );
+    } else {
+      await client.query(
+        `INSERT INTO road.repair_monitoring (repair_id, start_date, end_date, monitoring_status, observations_count, authority_confirmation)
+         VALUES ($1, CURRENT_DATE, CURRENT_DATE + ($2 || ' days')::interval, 'IN_PROGRESS', 0, false)`,
+        [repairId, days]
+      );
+    }
+
+    // 3. Update complaint status to REPAIR_COMPLETED (Resolution: 90%)
+    const uC = await client.query(
+      `UPDATE road.complaints SET status = 'REPAIR_COMPLETED', updated_at = NOW() WHERE complaint_id = $1 RETURNING *`,
+      [id]
+    );
+
+    // 4. Record status history
+    await client.query(
+      `INSERT INTO road.complaint_status_history (complaint_id, status, changed_by, remarks, changed_at)
+       VALUES ($1, 'REPAIR_COMPLETED', $2, $3, NOW())`,
+      [id, engineerId, `Repair completed by Engineer ${engineerName}. Evidence submitted for authority verification. Entered post-repair monitoring (Resolution: 90%).`]
+    );
+
+    // 5. Notifications
+    // Authority Notification (required per specification)
+    await createNotification(client, {
+      recipient_id: "AUTHUSER-0001",
+      complaint_id: id,
+      title: "Repair-Completion Evidence Submitted",
+      message: `Engineer ${engineerName} has submitted repair-completion evidence for complaint ${id}. Please inspect the evidence and verify the resolution.`,
+      event_type: "REPAIR_COMPLETED",
+      metadata: { engineer_id: engineerId, completion_image_path }
+    });
+
+    // Citizen Notification
+    const citizenId = uC.rows[0].citizen_id;
+    if (citizenId) {
+      await createNotification(client, {
+        recipient_id: citizenId,
+        complaint_id: id,
+        title: "Repair Completed — Under Monitoring",
+        message: `Physical road repair completed on site for complaint ${id}. Entered mandatory ${days}-day post-repair monitoring period (Resolution: 90%).`,
+        event_type: "REPAIR_COMPLETED",
+        metadata: { engineer_name: engineerName, resolution_pct: 90 }
+      });
+    }
+
+    await client.query("COMMIT");
+
+    res.json({
+      success: true,
+      message: "Repair-completion evidence submitted successfully. Entered post-repair monitoring.",
+      complaint: uC.rows[0],
+      repair: repairRow
+    });
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    res.status(500).json({ message: "Failed to submit repair completion evidence.", error: err.message });
   } finally {
     client.release();
   }
@@ -1533,6 +2390,33 @@ app.post("/api/complaints/:id/confirm-final", async (req, res) => {
       [id, actorId, notes || "Repair successfully verified after post-repair observation period. 100% officially resolved."]
     );
 
+    // Connected Notifications for Final Resolution (100% Resolved)
+    if (uC.rows[0].citizen_id) {
+      await createNotification(client, {
+        recipient_id: uC.rows[0].citizen_id,
+        complaint_id: id,
+        title: "Complaint Resolved Successfully",
+        message: `Your complaint ${id} has been marked as resolved.`,
+        event_type: "COMPLAINT_RESOLVED",
+        metadata: { resolved_by: actorId }
+      });
+    }
+
+    const asnCheck = await client.query(
+      `SELECT assigned_to FROM road.assignments WHERE complaint_id = $1 AND status != 'SUPERSEDED' ORDER BY assigned_at DESC LIMIT 1`,
+      [id]
+    );
+    if (asnCheck.rowCount > 0 && asnCheck.rows[0].assigned_to) {
+      await createNotification(client, {
+        recipient_id: asnCheck.rows[0].assigned_to,
+        complaint_id: id,
+        title: "Repair Resolution Verified",
+        message: `Authority verified and confirmed 100% resolution for complaint ${id}.`,
+        event_type: "COMPLAINT_RESOLVED",
+        metadata: { resolved_by: actorId }
+      });
+    }
+
     await client.query("COMMIT");
 
     res.json({
@@ -1595,6 +2479,33 @@ app.post("/api/complaints/:id/reinspect", async (req, res) => {
        RETURNING *`,
       [id, actorId, reason || "Road damage re-appeared during post-repair monitoring. Immediate re-inspection ordered."]
     );
+
+    // Connected Notifications for Re-inspection
+    if (uC.rows[0].citizen_id) {
+      await createNotification(client, {
+        recipient_id: uC.rows[0].citizen_id,
+        complaint_id: id,
+        title: "Re-inspection Scheduled",
+        message: `Complaint ${id} has been scheduled for re-inspection following monitoring telemetry review.`,
+        event_type: "REINSPECTION_REQUESTED",
+        metadata: { reason }
+      });
+    }
+
+    const asnCheckRe = await client.query(
+      `SELECT assigned_to FROM road.assignments WHERE complaint_id = $1 AND status != 'SUPERSEDED' ORDER BY assigned_at DESC LIMIT 1`,
+      [id]
+    );
+    if (asnCheckRe.rowCount > 0 && asnCheckRe.rows[0].assigned_to) {
+      await createNotification(client, {
+        recipient_id: asnCheckRe.rows[0].assigned_to,
+        complaint_id: id,
+        title: "Reinspection Ordered",
+        message: `Authority requested re-inspection for complaint ${id}: ${reason || "Deterioration detected."}`,
+        event_type: "REINSPECTION_REQUESTED",
+        metadata: { reason }
+      });
+    }
 
     await client.query("COMMIT");
 

@@ -1,5 +1,5 @@
 /**
- * MargDrishti — Explainable Priority Engine
+ * MargDrishti — Explainable Priority Engine (ES Module)
  * Implements the 6-factor deterministic road hazard prioritization model:
  *
  * Factor                  Scale   Weight   Max Contrib
@@ -36,30 +36,47 @@ export const PriorityEngine = {
     // 1. Damage Severity (0–100 scale, Weight: 30%)
     // Derived from trained YOLO11 defect classification & hazard rating
     // -------------------------------------------------------------
-    let severityScore = 60; // default baseline
+    let severityScore = 60; // baseline
+    let severityMethod = '';
 
     if (count === 0 || normDamageType === 'NO_DAMAGE_DETECTED') {
       severityScore = 20; // minimal detected danger; pending manual review
+      severityMethod = 'No supported road damage detected by YOLO11 vision; baseline unconfirmed severity.';
     } else if (normDamageType === 'OPEN_MANHOLE') {
       severityScore = 95; // catastrophic risk to pedestrians and vehicles
+      severityMethod = 'Open manhole detected; severe fall and collision hazard.';
     } else if (normDamageType === 'POTHOLE') {
-      if (severity === 'CRITICAL' || areaPct > 15) severityScore = 90;
-      else if (severity === 'HIGH' || areaPct > 8) severityScore = 80;
-      else if (severity === 'MEDIUM') severityScore = 65;
-      else severityScore = 45;
+      if (severity === 'CRITICAL' || areaPct > 15) {
+        severityScore = 90;
+        severityMethod = 'Deep pothole crater detected; severe wheel rim damage and vehicular rollover risk.';
+      } else if (severity === 'HIGH' || areaPct > 8) {
+        severityScore = 80;
+        severityMethod = 'High-impact pothole crater detected on pavement surface.';
+      } else if (severity === 'MEDIUM') {
+        severityScore = 65;
+        severityMethod = 'Moderate surface depression detected; regular maintenance priority.';
+      } else {
+        severityScore = 45;
+        severityMethod = 'Minor surface pothole defect detected.';
+      }
     } else if (normDamageType === 'BROKEN_ROAD_EDGE') {
       severityScore = severity === 'CRITICAL' ? 85 : 75;
+      severityMethod = 'Broken carriageway edge detected; edge-drop and shoulder erosion hazard.';
     } else if (normDamageType === 'WATERLOGGED_ROAD') {
       severityScore = severity === 'CRITICAL' ? 85 : 70;
+      severityMethod = 'Waterlogged road surface; hydroplaning and concealed pothole hazard.';
     } else if (normDamageType === 'CONSTRUCTION_ZONE') {
       severityScore = 60;
+      severityMethod = 'Construction excavation zone; caution advised for passing vehicles.';
     } else if (normDamageType === 'CRACK') {
       severityScore = severity === 'HIGH' ? 60 : 45;
+      severityMethod = 'Structural asphalt fissures detected; moisture infiltration risk.';
     } else {
       if (severity === 'CRITICAL') severityScore = 88;
       else if (severity === 'HIGH') severityScore = 75;
       else if (severity === 'MEDIUM') severityScore = 55;
       else severityScore = 35;
+      severityMethod = `General road distress (${normDamageType}) with ${severity} severity rating.`;
     }
 
     // Fine-tune slightly by detection confidence (honest calibration)
@@ -77,7 +94,7 @@ export const PriorityEngine = {
 
     if (count === 0) {
       extentScore = 15;
-      extentMethod = 'Zero defects detected; baseline unconfirmed extent.';
+      extentMethod = 'Zero defects detected; [Prototype assumption] baseline unconfirmed extent.';
     } else {
       const countContribution = Math.min(60, count * 20); // 1->20, 2->40, 3+->60
       const areaContribution = Math.min(40, Math.round(areaPct * 1.5));
@@ -94,21 +111,26 @@ export const PriorityEngine = {
     // 3. Road Importance (0–100 scale, Weight: 20%)
     // Based on corridor classification hierarchy
     // -------------------------------------------------------------
-    let roadScore = 70; // prototype default
+    let roadScore = 70;
+    let roadMethod = '';
     const normRoadType = String(roadType || 'ARTERIAL').toUpperCase();
     switch (normRoadType) {
       case 'HIGHWAY':
         roadScore = 95;
+        roadMethod = 'National/State Highway network; high-speed transit corridor.';
         break;
       case 'ARTERIAL':
         roadScore = 85;
+        roadMethod = 'Arterial municipal road; major city connector corridor.';
         break;
       case 'COLLECTOR':
         roadScore = 60;
+        roadMethod = 'Collector road connecting local neighborhoods to main corridors.';
         break;
       case 'LOCAL':
       default:
         roadScore = 35;
+        roadMethod = '[Prototype assumption] Local/residential street profile.';
         break;
     }
 
@@ -116,18 +138,22 @@ export const PriorityEngine = {
     // 4. Traffic Exposure (0–100 scale, Weight: 10%)
     // Based on reported transit exposure level
     // -------------------------------------------------------------
-    let trafficScore = 65; // prototype default
+    let trafficScore = 65;
+    let trafficMethod = '';
     const normTraffic = String(trafficExposure || 'HIGH').toUpperCase();
     switch (normTraffic) {
       case 'HIGH':
         trafficScore = 90;
+        trafficMethod = 'Heavy peak-hour vehicle traffic & public bus transit.';
         break;
       case 'MEDIUM':
         trafficScore = 60;
+        trafficMethod = 'Moderate vehicular movement and intermittent transit.';
         break;
       case 'LOW':
       default:
         trafficScore = 30;
+        trafficMethod = '[Prototype assumption] Low-density traffic environment.';
         break;
     }
 
@@ -135,25 +161,40 @@ export const PriorityEngine = {
     // 5. Sensitive Location Risk (0–100 scale, Weight: 10%)
     // Proximity to school, hospital, transit hub, or flood zone
     // -------------------------------------------------------------
-    let sensitiveScore = 30; // baseline
+    let sensitiveScore = 30;
+    let sensitiveMethod = '';
     const zones = Array.isArray(sensitiveZones) ? sensitiveZones : [];
     if (zones.length > 0) {
       sensitiveScore = Math.min(100, zones.length * 25 + 10); // 1->35, 2->60, 3->85, 4->100
+      sensitiveMethod = `Civic proximity: adjacent to ${zones.join(', ')} corridor.`;
     } else {
       sensitiveScore = 20;
+      sensitiveMethod = '[Prototype assumption] No sensitive school or hospital zone declared.';
     }
 
     // -------------------------------------------------------------
     // 6. Corroborating Evidence (0–100 scale, Weight: 10%)
     // Neighbor reports / historical corridor verification
     // -------------------------------------------------------------
-    let corroboratingScore = 60; // prototype default
+    let corroboratingScore = 60;
+    let corroboratingMethod = '';
     const corrCount = typeof corroboratingCount === 'number' ? corroboratingCount : 4;
-    if (corrCount >= 6) corroboratingScore = 95;
-    else if (corrCount >= 4) corroboratingScore = 80;
-    else if (corrCount >= 2) corroboratingScore = 65;
-    else if (corrCount >= 1) corroboratingScore = 45;
-    else corroboratingScore = 25;
+    if (corrCount >= 6) {
+      corroboratingScore = 95;
+      corroboratingMethod = `${corrCount} independent citizen reports verified in corridor.`;
+    } else if (corrCount >= 4) {
+      corroboratingScore = 80;
+      corroboratingMethod = `${corrCount} corroborating citizen reports in corridor.`;
+    } else if (corrCount >= 2) {
+      corroboratingScore = 65;
+      corroboratingMethod = `${corrCount} corroborating reports recorded in same sector.`;
+    } else if (corrCount >= 1) {
+      corroboratingScore = 45;
+      corroboratingMethod = 'Single independently confirmed citizen report.';
+    } else {
+      corroboratingScore = 25;
+      corroboratingMethod = '[Prototype assumption] Single uncorroborated initial report.';
+    }
 
     // -------------------------------------------------------------
     // Priority Score Calculation:
@@ -212,7 +253,7 @@ export const PriorityEngine = {
             max: 30,
             isModelDerived: true,
             label: 'Damage Severity',
-            method: 'Trained YOLO11 defect classification & impact rating'
+            method: severityMethod
           },
           damageExtent: {
             score: extentScore,
@@ -230,7 +271,7 @@ export const PriorityEngine = {
             max: 20,
             isModelDerived: false,
             label: 'Road Importance',
-            method: `Road hierarchy: ${normRoadType} corridor profile`
+            method: roadMethod
           },
           trafficExposure: {
             score: trafficScore,
@@ -239,7 +280,7 @@ export const PriorityEngine = {
             max: 10,
             isModelDerived: false,
             label: 'Traffic Exposure',
-            method: `Transit volume: ${normTraffic} exposure rating`
+            method: trafficMethod
           },
           sensitiveLocation: {
             score: sensitiveScore,
@@ -248,7 +289,7 @@ export const PriorityEngine = {
             max: 10,
             isModelDerived: false,
             label: 'Sensitive Location Risk',
-            method: zones.length > 0 ? `Active zones: ${zones.join(', ')}` : 'No sensitive infrastructure identified'
+            method: sensitiveMethod
           },
           corroboratingEvidence: {
             score: corroboratingScore,
@@ -257,12 +298,12 @@ export const PriorityEngine = {
             max: 10,
             isModelDerived: false,
             label: 'Corroborating Evidence',
-            method: `${corrCount} corroborating citizen reports in corridor`
+            method: corroboratingMethod
           }
         }
       },
       rationale,
-      modelLabel: 'Explainable 6-Factor Priority Engine'
+      modelLabel: 'Prototype Explainable Priority Model'
     };
   }
 };

@@ -10,12 +10,15 @@ import { renderBoundingBoxesOnCanvas } from './boundingBox.js';
 import { GeoService } from './geoService.js';
 import { AuthService } from './auth.js';
 import { I18n } from './i18n.js';
-import { fetchComplaintById } from './api.js';
+import { fetchComplaintById, fetchEngineersApi } from './api.js';
+import { NotificationUI } from './notifications.js';
 
 let activeFilter = 'ALL';
 let selectedComplaintId = null;
 let inspectorMapInstance = null;
 let activeAuthoritySession = null;
+let availableEngineers = [];
+let authorityNotifications = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
   // Enforce Authority Route Protection
@@ -26,6 +29,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   initAuthorityProfile();
   initMonitoringConfig();
+
+  // Initialize In-App Notification System
+  const authorityId = activeAuthoritySession?.user?.authorityId || activeAuthoritySession?.user?.id || 'AUTHUSER-0001';
+  authorityNotifications = new NotificationUI({
+    containerId: 'authorityNotificationBellContainer',
+    recipientId: authorityId,
+    onSelectComplaint: (cid) => openComplaintInspector(cid)
+  });
+
   await MargDrishtiStore.fetchFromBackend();
   initKPIs();
   renderMonitoringTable();
@@ -546,19 +558,53 @@ function renderComplaintInspector(c) {
     }
   }
 
-  // 3. Priority Breakdown
+  // 3. Dynamic Explainable Priority Breakdown (0-100)
   const p = c.priority || {};
-  const b = p.breakdown || { damageSeverity: 24, damageExtent: 16, roadImportance: 18, trafficExposure: 8, sensitiveLocation: 10, corroboratingEvidence: 8 };
+  const b = p.breakdown || {};
+  const factors = b.factors || {};
 
-  setInspectorBar('inspBarSev', (b.damageSeverity / 30) * 100, `${b.damageSeverity}/30`);
-  setInspectorBar('inspBarExt', (b.damageExtent / 20) * 100, `${b.damageExtent}/20`);
-  setInspectorBar('inspBarRoad', (b.roadImportance / 20) * 100, `${b.roadImportance}/20`);
-  setInspectorBar('inspBarTraf', (b.trafficExposure / 10) * 100, `${b.trafficExposure}/10`);
-  setInspectorBar('inspBarSens', (b.sensitiveLocation / 10) * 100, `${b.sensitiveLocation}/10`);
-  setInspectorBar('inspBarCorr', (b.corroboratingEvidence / 10) * 100, `${b.corroboratingEvidence}/10`);
+  const prioScore = p.score != null ? p.score : (c.priority_score != null ? Number(c.priority_score) : 75);
+  const prioLevel = p.level || (prioScore >= 80 ? 'CRITICAL' : prioScore >= 60 ? 'HIGH' : prioScore >= 40 ? 'MEDIUM' : 'LOW');
+
+  const prioBadge = document.getElementById('inspPriorityBadge');
+  if (prioBadge) {
+    prioBadge.textContent = `${prioScore}/100 ${prioLevel}`;
+    prioBadge.className = `badge font-mono ${prioScore >= 80 ? 'badge-priority-critical' : prioScore >= 60 ? 'badge-priority-high' : 'badge-priority-medium'}`;
+  }
+
+  // Normalized factor scores & actual weighted points:
+  const sevScore = factors.damageSeverity?.score ?? Math.round(((b.damageSeverity || 24) / 30) * 100);
+  const sevWeighted = b.damageSeverity != null ? b.damageSeverity : Math.round(sevScore * 0.30);
+  setInspectorBar('inspBarSev', (sevWeighted / 30) * 100, `${sevWeighted}/30 (${sevScore}/100)`);
+  setInspectorDesc('inspBarSevDesc', factors.damageSeverity?.method || 'YOLO11 defect impact rating');
+
+  const extScore = factors.damageExtent?.score ?? Math.round(((b.damageExtent || 16) / 20) * 100);
+  const extWeighted = b.damageExtent != null ? b.damageExtent : Math.round(extScore * 0.20);
+  setInspectorBar('inspBarExt', (extWeighted / 20) * 100, `${extWeighted}/20 (${extScore}/100)`);
+  setInspectorDesc('inspBarExtDesc', factors.damageExtent?.method || 'Bounding box defect area coverage');
+
+  const roadScore = factors.roadImportance?.score ?? Math.round(((b.roadImportance || 18) / 20) * 100);
+  const roadWeighted = b.roadImportance != null ? b.roadImportance : Math.round(roadScore * 0.20);
+  setInspectorBar('inspBarRoad', (roadWeighted / 20) * 100, `${roadWeighted}/20 (${roadScore}/100)`);
+  setInspectorDesc('inspBarRoadDesc', factors.roadImportance?.method || 'Corridor hierarchy classification');
+
+  const trafScore = factors.trafficExposure?.score ?? Math.round(((b.trafficExposure || 8) / 10) * 100);
+  const trafWeighted = b.trafficExposure != null ? b.trafficExposure : Math.round(trafScore * 0.10);
+  setInspectorBar('inspBarTraf', (trafWeighted / 10) * 100, `${trafWeighted}/10 (${trafScore}/100)`);
+  setInspectorDesc('inspBarTrafDesc', factors.trafficExposure?.method || 'Public transit & vehicle exposure rating');
+
+  const sensScore = factors.sensitiveLocation?.score ?? Math.round(((b.sensitiveLocation || 8) / 10) * 100);
+  const sensWeighted = b.sensitiveLocation != null ? b.sensitiveLocation : Math.round(sensScore * 0.10);
+  setInspectorBar('inspBarSens', (sensWeighted / 10) * 100, `${sensWeighted}/10 (${sensScore}/100)`);
+  setInspectorDesc('inspBarSensDesc', factors.sensitiveLocation?.method || 'Adjacent school/hospital civic proximity');
+
+  const corrScore = factors.corroboratingEvidence?.score ?? Math.round(((b.corroboratingEvidence || 8) / 10) * 100);
+  const corrWeighted = b.corroboratingEvidence != null ? b.corroboratingEvidence : Math.round(corrScore * 0.10);
+  setInspectorBar('inspBarCorr', (corrWeighted / 10) * 100, `${corrWeighted}/10 (${corrScore}/100)`);
+  setInspectorDesc('inspBarCorrDesc', factors.corroboratingEvidence?.method || 'Corridor citizen report corroboration');
 
   const rationaleEl = document.getElementById('inspectorRationale');
-  if (rationaleEl) rationaleEl.textContent = p.rationale || 'Evaluated via MargDrishti explainable priority formula.';
+  if (rationaleEl) rationaleEl.textContent = p.rationale || 'Evaluated per MargDrishti Prototype Explainable Priority Model.';
 
   // 4. Location Context & Leaflet Map
   const locText = document.getElementById('inspectorLocText');
@@ -587,6 +633,11 @@ function setInspectorBar(id, pct, text) {
   const lbl = document.getElementById(`${id}Label`);
   if (el) el.style.width = `${pct}%`;
   if (lbl) lbl.textContent = text;
+}
+
+function setInspectorDesc(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text || '';
 }
 
 function renderInspectorTimeline(c) {
@@ -776,32 +827,194 @@ function initAssignModalEvents() {
   const form = document.getElementById('assignOfficerForm');
   if (!form) return;
 
-  // Populate demo officers
   const select = document.getElementById('selectAssignOfficer');
   if (select) {
-    select.innerHTML = DEMO_OFFICERS.map(o => `
-      <option value="${o.id}">${o.name} &bull; ${o.designation} (${o.zone})</option>
-    `).join('');
+    select.addEventListener('change', () => {
+      updateSelectedEngineerPreview(select.value);
+    });
   }
 
-  form.addEventListener('submit', (e) => {
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const officerId = select.value;
-    const officer = DEMO_OFFICERS.find(o => o.id === officerId) || DEMO_OFFICERS[0];
-    const notes = document.getElementById('assignNotesInput')?.value || 'Dispatched for pothole repair.';
+    const btnSubmit = document.getElementById('btnConfirmAssignSubmit');
+    const btnText = document.getElementById('btnConfirmAssignText');
+    const errorBox = document.getElementById('assignErrorBox');
 
-    if (selectedComplaintId) {
-      MargDrishtiStore.assignOfficer(selectedComplaintId, officer, notes);
-      document.getElementById('assignOfficerModal').classList.remove('active');
-      showToast('Work Order Assigned', `Assigned ${selectedComplaintId} to ${officer.name}.`);
+    if (errorBox) {
+      errorBox.classList.add('hidden');
+      errorBox.textContent = '';
+    }
+
+    if (btnSubmit?.disabled) return;
+
+    const officerId = select ? select.value : '';
+    if (!officerId) {
+      if (errorBox) {
+        errorBox.textContent = 'Please select a valid engineering officer.';
+        errorBox.classList.remove('hidden');
+      }
+      return;
+    }
+
+    const selectedEng = availableEngineers.find(o => o.user_id === officerId || o.id === officerId) || {
+      id: officerId,
+      name: 'Assigned Engineer',
+      designation: 'Assistant Executive Engineer'
+    };
+
+    const notes = document.getElementById('assignNotesInput')?.value || 'Dispatched for road repair.';
+    const expectedDate = document.getElementById('assignExpectedDate')?.value || null;
+
+    // Prevent duplicate clicks
+    if (btnSubmit) btnSubmit.disabled = true;
+    if (btnText) btnText.textContent = 'Dispatching Work Order...';
+
+    try {
+      if (selectedComplaintId) {
+        await MargDrishtiStore.assignOfficer(selectedComplaintId, selectedEng, notes, expectedDate);
+        closeAssignModal();
+        showToast('Work Order Assigned', `Assigned ${selectedComplaintId} to ${selectedEng.name}.`);
+        if (authorityNotifications) authorityNotifications.refresh(true);
+      }
+    } catch (err) {
+      console.error('Assignment error:', err);
+      if (errorBox) {
+        errorBox.textContent = err.message || 'Failed to dispatch assignment. Please try again.';
+        errorBox.classList.remove('hidden');
+      }
+    } finally {
+      if (btnSubmit) btnSubmit.disabled = false;
+      if (btnText) btnText.textContent = 'Confirm & Dispatch Work Order';
     }
   });
 }
 
-window.openAssignModal = function(complaintId) {
+function updateSelectedEngineerPreview(officerId) {
+  const eng = availableEngineers.find(o => o.user_id === officerId || o.id === officerId);
+  if (!eng) return;
+
+  const nameEl = document.getElementById('prevEngName');
+  const workloadEl = document.getElementById('prevEngWorkload');
+  const desigEl = document.getElementById('prevEngDesig');
+  const phoneEl = document.getElementById('prevEngPhone');
+  const zoneEl = document.getElementById('prevEngZone');
+  const demoEl = document.getElementById('prevEngDemoLabel');
+
+  if (nameEl) nameEl.textContent = `${eng.name} (${eng.user_id || eng.id})`;
+  if (workloadEl) workloadEl.textContent = `Active Workload: ${eng.active_tasks || 0} Task(s)`;
+  if (desigEl) desigEl.textContent = eng.designation || 'Assistant Executive Engineer';
+  if (phoneEl) phoneEl.textContent = eng.phone || '+91 98450 12345';
+  if (zoneEl) zoneEl.textContent = eng.zone || 'East Zone & Central Corridor';
+  if (demoEl) demoEl.textContent = eng.is_demo_account ? '[Demo Account] Pre-configured for prototype evaluation.' : '[Registered Official] Registered Municipal Engineer.';
+}
+
+window.openAssignModal = async function(complaintId) {
   selectedComplaintId = complaintId;
   const modal = document.getElementById('assignOfficerModal');
-  if (modal) modal.classList.add('active');
+  if (!modal) return;
+
+  const complaint = MargDrishtiStore.getComplaintById(complaintId);
+  if (!complaint) return;
+
+  // Clear previous error
+  const errorBox = document.getElementById('assignErrorBox');
+  if (errorBox) {
+    errorBox.classList.add('hidden');
+    errorBox.textContent = '';
+  }
+
+  // Populate Complaint Context Banner
+  const sumId = document.getElementById('assignSumId');
+  const sumDamage = document.getElementById('assignSumDamageType');
+  const sumSev = document.getElementById('assignSumSeverity');
+  const sumLoc = document.getElementById('assignSumLocation');
+  const sumCoords = document.getElementById('assignSumCoords');
+  const sumAi = document.getElementById('assignSumAi');
+  const sumCitizen = document.getElementById('assignSumCitizenDesc');
+  const prioBadge = document.getElementById('assignModalPriorityBadge');
+
+  if (sumId) sumId.textContent = complaint.complaintId;
+  if (sumDamage) sumDamage.textContent = complaint.damageType;
+  if (sumSev) {
+    sumSev.textContent = complaint.severity;
+    sumSev.className = `badge ${complaint.severity === 'CRITICAL' ? 'badge-priority-critical' : 'badge-priority-high'}`;
+  }
+  if (sumLoc) sumLoc.textContent = complaint.location?.roadName || 'Indiranagar Main Road';
+  if (sumCoords) sumCoords.textContent = `(${complaint.location?.latitude.toFixed(4)}, ${complaint.location?.longitude.toFixed(4)})`;
+  if (sumAi) sumAi.textContent = `AI Detection: ${complaint.damageType} classified by YOLO11 (${Math.round((complaint.confidence || 0.92) * 100)}% confidence)`;
+  if (sumCitizen) sumCitizen.textContent = `Citizen: ${complaint.description || 'Road defect reported via portal.'}`;
+
+  if (prioBadge) {
+    const pScore = complaint.priority?.score || 75;
+    const pLevel = complaint.priority?.level || 'HIGH';
+    prioBadge.textContent = `Priority: ${pScore}/100 ${pLevel}`;
+    prioBadge.className = `badge font-mono ${pScore >= 80 ? 'badge-priority-critical' : 'badge-priority-high'}`;
+  }
+
+  // Default expected completion date (tomorrow)
+  const expDateInput = document.getElementById('assignExpectedDate');
+  if (expDateInput) {
+    const tmrw = new Date();
+    tmrw.setDate(tmrw.getDate() + 2);
+    expDateInput.value = tmrw.toISOString().split('T')[0];
+  }
+
+  // Fetch real available engineers from backend
+  const loadingStatus = document.getElementById('assignEngineerLoadingStatus');
+  const select = document.getElementById('selectAssignOfficer');
+
+  if (loadingStatus) loadingStatus.textContent = 'Querying available engineers...';
+
+  try {
+    const res = await fetchEngineersApi();
+    if (res && Array.isArray(res.engineers) && res.engineers.length > 0) {
+      availableEngineers = res.engineers;
+    } else {
+      availableEngineers = DEMO_OFFICERS.map(o => ({
+        user_id: o.id,
+        name: o.name,
+        designation: o.designation,
+        zone: o.zone,
+        phone: o.phone,
+        active_tasks: 0,
+        is_demo_account: true
+      }));
+    }
+  } catch (err) {
+    console.warn('Could not load engineers list from backend, using fallback:', err.message);
+    availableEngineers = DEMO_OFFICERS.map(o => ({
+      user_id: o.id,
+      name: o.name,
+      designation: o.designation,
+      zone: o.zone,
+      phone: o.phone,
+      active_tasks: 0,
+      is_demo_account: true
+    }));
+  }
+
+  if (loadingStatus) loadingStatus.textContent = `${availableEngineers.length} registered officers available:`;
+
+  if (select) {
+    select.innerHTML = availableEngineers.map(o => `
+      <option value="${o.user_id}">
+        ${o.name} (${o.user_id}) &bull; ${o.active_tasks || 0} active task(s) &bull; ${o.designation} [Demo Account]
+      </option>
+    `).join('');
+
+    // Pre-select currently assigned officer if already assigned
+    if (complaint.assignedOfficer?.id || complaint.assignedOfficer?.user_id) {
+      const matchId = complaint.assignedOfficer.id || complaint.assignedOfficer.user_id;
+      if (availableEngineers.some(o => o.user_id === matchId)) {
+        select.value = matchId;
+      }
+    }
+
+    updateSelectedEngineerPreview(select.value);
+  }
+
+  modal.classList.add('active');
+  if (window.lucide) window.lucide.createIcons();
 };
 
 window.closeAssignModal = function() {

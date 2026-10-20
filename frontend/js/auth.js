@@ -49,6 +49,20 @@ export const DEMO_CREDENTIALS = {
     authorityRecordId: 'AUTH-0001',
     jurisdiction: 'Kolhapur City',
     department: 'Road Infrastructure Division'
+  },
+  engineer: {
+    id: 'ENG-0001',
+    user_id: 'ENG-0001',
+    engineerId: 'ENG-0001',
+    name: 'Rajesh Kumar',
+    email: 'rajesh.engineer@margdrishti.demo',
+    password: 'Engineer@123',
+    mobile: '9845012345',
+    role: 'engineer',
+    designation: 'Assistant Executive Engineer (Demo Field Account)',
+    department: 'Zonal Road Infrastructure Division',
+    zone: 'East Zone & Central Corridor',
+    is_demo: true
   }
 };
 
@@ -71,6 +85,9 @@ class AuthServiceManager {
       }
       if (!users.some(u => u.id === DEMO_CREDENTIALS.authority.id || u.email === DEMO_CREDENTIALS.authority.email)) {
         users.push({ ...DEMO_CREDENTIALS.authority });
+      }
+      if (!users.some(u => u.id === DEMO_CREDENTIALS.engineer.id || u.email === DEMO_CREDENTIALS.engineer.email)) {
+        users.push({ ...DEMO_CREDENTIALS.engineer });
       }
 
       localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
@@ -102,6 +119,14 @@ class AuthServiceManager {
             session.user.authorityId = DEMO_CREDENTIALS.authority.id;
             session.user.name = DEMO_CREDENTIALS.authority.name;
             session.user.email = DEMO_CREDENTIALS.authority.email;
+            changed = true;
+          }
+        } else if (session.role === 'engineer') {
+          if (!session.user.engineerId) {
+            session.user.id = DEMO_CREDENTIALS.engineer.id;
+            session.user.engineerId = DEMO_CREDENTIALS.engineer.id;
+            session.user.name = DEMO_CREDENTIALS.engineer.name;
+            session.user.email = DEMO_CREDENTIALS.engineer.email;
             changed = true;
           }
         }
@@ -197,10 +222,11 @@ class AuthServiceManager {
             user_id: dbUser.user_id || dbUser.id,
             citizenId: (dbUser.role === 'citizen' || role === 'citizen') ? (dbUser.user_id || dbUser.id) : null,
             authorityId: (dbUser.role === 'authority' || role === 'authority') ? (dbUser.user_id || dbUser.id) : null,
+            engineerId: (dbUser.role === 'engineer' || role === 'engineer') ? (dbUser.user_id || dbUser.id) : null,
             name: dbUser.name,
             email: dbUser.email,
             mobile: dbUser.phone || '',
-            designation: role === 'authority' ? 'Assistant Executive Engineer' : 'Verified Resident',
+            designation: role === 'authority' ? 'Assistant Executive Engineer' : role === 'engineer' ? 'Assistant Executive Engineer (Demo Field Account)' : 'Verified Resident',
             roadType: role === 'authority' ? 'City / Municipal Road' : '',
             responsibleAuthority: role === 'authority' ? 'Kolhapur Municipal Corporation' : '',
             jurisdiction: role === 'authority' ? 'Kolhapur City' : ''
@@ -227,7 +253,8 @@ class AuthServiceManager {
         (u.authorityId && u.authorityId.toLowerCase() === cleanIdentifier.toLowerCase()) ||
         (u.mobile && u.mobile.replace(/\D/g, '') === cleanIdentifier.replace(/\D/g, '')) ||
         (role === 'citizen' && (cleanIdentifier.toLowerCase() === 'citizen@margdrishti.demo' || cleanIdentifier.toLowerCase() === 'aishwarya@test.com')) ||
-        (role === 'authority' && (cleanIdentifier.toLowerCase() === 'authority@margdrishti.demo' || cleanIdentifier.toLowerCase() === 'engineer@test.com'))
+        (role === 'authority' && (cleanIdentifier.toLowerCase() === 'authority@margdrishti.demo' || cleanIdentifier.toLowerCase() === 'engineer@test.com')) ||
+        (role === 'engineer' && (cleanIdentifier.toLowerCase() === 'rajesh.engineer@margdrishti.demo' || cleanIdentifier.toLowerCase() === 'engineer@margdrishti.demo' || cleanIdentifier.toUpperCase() === 'ENG-0001'))
       )
     );
 
@@ -236,11 +263,13 @@ class AuthServiceManager {
         success: false,
         error: role === 'authority'
           ? 'Invalid Authority ID or credentials. Contact zonal administrator.'
+          : role === 'engineer'
+          ? 'Invalid Engineer ID or credentials. Please verify your engineer assignment.'
           : 'Account not found. Please sign up for a Citizen account.'
       };
     }
 
-    const validPass = user.password === cleanPass || cleanPass === 'Citizen@123' || cleanPass === 'Authority@123';
+    const validPass = user.password === cleanPass || cleanPass === 'Citizen@123' || cleanPass === 'Authority@123' || cleanPass === 'Engineer@123';
     if (!validPass) {
       return { success: false, error: 'Incorrect password. Please try again.' };
     }
@@ -249,13 +278,14 @@ class AuthServiceManager {
       isLoggedIn: true,
       role: user.role,
       user: {
-        id: user.id || (user.role === 'authority' ? DEMO_CREDENTIALS.authority.id : DEMO_CREDENTIALS.citizen.id),
+        id: user.id || (user.role === 'authority' ? DEMO_CREDENTIALS.authority.id : user.role === 'engineer' ? DEMO_CREDENTIALS.engineer.id : DEMO_CREDENTIALS.citizen.id),
         citizenId: user.role === 'citizen' ? (user.citizenId || DEMO_CREDENTIALS.citizen.id) : null,
         authorityId: user.role === 'authority' ? (user.authorityId || DEMO_CREDENTIALS.authority.id) : null,
+        engineerId: user.role === 'engineer' ? (user.engineerId || DEMO_CREDENTIALS.engineer.id) : null,
         name: user.name,
         email: user.email,
         mobile: user.mobile,
-        designation: user.designation || (user.role === 'authority' ? 'Assistant Executive Engineer' : 'Verified Resident'),
+        designation: user.designation || (user.role === 'authority' ? 'Assistant Executive Engineer' : user.role === 'engineer' ? 'Assistant Executive Engineer (Demo Field Account)' : 'Verified Resident'),
         roadType: user.roadType || (user.role === 'authority' ? 'City / Municipal Road' : ''),
         responsibleAuthority: user.responsibleAuthority || (user.role === 'authority' ? 'Kolhapur Municipal Corporation' : ''),
         jurisdiction: user.jurisdiction || (user.role === 'authority' ? 'Kolhapur City' : '')
@@ -391,7 +421,11 @@ class AuthServiceManager {
 
     // Auto-login with real official demo account if not logged in
     if (!session || !session.isLoggedIn || session.role !== requiredRole) {
-      const demoUser = requiredRole === 'authority' ? DEMO_CREDENTIALS.authority : DEMO_CREDENTIALS.citizen;
+      const demoUser = requiredRole === 'authority'
+        ? DEMO_CREDENTIALS.authority
+        : requiredRole === 'engineer'
+        ? DEMO_CREDENTIALS.engineer
+        : DEMO_CREDENTIALS.citizen;
       session = {
         isLoggedIn: true,
         role: requiredRole,

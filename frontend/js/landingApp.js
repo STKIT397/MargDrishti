@@ -95,18 +95,20 @@ function updateNavAuthState() {
 
   if (session && session.isLoggedIn && session.user) {
     const isAuthority = session.role === 'authority';
-    const targetUrl = isAuthority ? 'authority.html' : 'citizen.html';
+    const isEngineer = session.role === 'engineer';
+    const targetUrl = isAuthority ? 'authority.html' : isEngineer ? 'engineer.html' : 'citizen.html';
+    const targetLabel = isAuthority ? 'Authority Queue' : isEngineer ? 'Engineer Tasks' : 'Citizen Dashboard';
     const initial = (session.user.name || 'U').charAt(0).toUpperCase();
 
     container.innerHTML = `
       <div class="user-profile-chip">
-        <div class="user-avatar-dot ${isAuthority ? 'authority' : ''}">${initial}</div>
+        <div class="user-avatar-dot ${isAuthority ? 'authority' : isEngineer ? 'engineer' : ''}">${initial}</div>
         <div style="display: flex; flex-direction: column; text-align: left; line-height: 1.1;">
           <span style="font-weight: 700; font-size: 0.82rem;">${session.user.name}</span>
           <span style="font-size: 0.68rem; color: var(--text-muted); text-transform: capitalize;">${session.role}</span>
         </div>
         <a href="${targetUrl}" class="btn btn-primary btn-sm" style="padding: 0.25rem 0.65rem; font-size: 0.75rem;">
-          <span>${isAuthority ? 'Authority Queue' : 'Citizen Dashboard'}</span>
+          <span>${targetLabel}</span>
           <i data-lucide="arrow-right" style="width: 12px; height: 12px;"></i>
         </a>
         <button type="button" class="btn-logout" onclick="window.handleLogout()">
@@ -151,18 +153,24 @@ window.setAuthRole = function(role) {
 
   const tabCitizen = document.getElementById('modalRoleCitizen');
   const tabAuthority = document.getElementById('modalRoleAuthority');
+  const tabEngineer = document.getElementById('modalRoleEngineer');
   const authNotice = document.getElementById('authAuthorityNotice');
   const submitBtnText = document.getElementById('btnLoginSubmitText');
   const autofillLabel = document.getElementById('autofillRoleLabel');
   const authFields = document.getElementById('signupAuthorityFields');
   const signupBtnText = document.getElementById('btnSignupSubmitText');
+  const modeSwitch = document.getElementById('authModeSwitch');
 
   if (tabCitizen && tabAuthority) {
     tabCitizen.classList.toggle('active', role === 'citizen');
     tabAuthority.classList.toggle('active', role === 'authority');
   }
+  if (tabEngineer) {
+    tabEngineer.classList.toggle('active', role === 'engineer');
+  }
 
   if (role === 'authority') {
+    if (modeSwitch) modeSwitch.style.display = 'grid';
     if (authNotice) {
       authNotice.style.display = 'block';
       authNotice.innerHTML = `
@@ -174,7 +182,21 @@ window.setAuthRole = function(role) {
     if (autofillLabel) autofillLabel.textContent = 'Authority Demo Account';
     if (authFields) authFields.style.display = 'block';
     if (signupBtnText) signupBtnText.textContent = 'Register Authority Officer';
+  } else if (role === 'engineer') {
+    if (modeSwitch) modeSwitch.style.display = 'none'; // Engineers use official assigned credentials
+    window.setAuthMode('login');
+    if (authNotice) {
+      authNotice.style.display = 'block';
+      authNotice.innerHTML = `
+        <i data-lucide="wrench" style="width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; color: #0284c7;"></i>
+        <strong>Field Engineer Portal.</strong> Access assigned road repair work orders and post-maintenance verification.
+      `;
+    }
+    if (submitBtnText) submitBtnText.textContent = 'Login as Field Engineer';
+    if (autofillLabel) autofillLabel.textContent = 'Engineer Demo Account [Demo Account]';
+    if (authFields) authFields.style.display = 'none';
   } else {
+    if (modeSwitch) modeSwitch.style.display = 'grid';
     if (authNotice) authNotice.style.display = 'none';
     if (submitBtnText) submitBtnText.textContent = 'Login to Citizen Portal';
     if (autofillLabel) autofillLabel.textContent = 'Citizen Demo Account';
@@ -219,6 +241,9 @@ window.fillDemoLogin = function() {
   if (activeRole === 'citizen') {
     if (emailInput) emailInput.value = DEMO_CREDENTIALS.citizen.email;
     if (passInput) passInput.value = DEMO_CREDENTIALS.citizen.password;
+  } else if (activeRole === 'engineer') {
+    if (emailInput) emailInput.value = DEMO_CREDENTIALS.engineer.email;
+    if (passInput) passInput.value = DEMO_CREDENTIALS.engineer.password;
   } else {
     if (emailInput) emailInput.value = DEMO_CREDENTIALS.authority.email;
     if (passInput) passInput.value = DEMO_CREDENTIALS.authority.password;
@@ -247,7 +272,7 @@ async function handleLoginSubmit(e) {
 
   if (!res.success) {
     if (submitBtn) submitBtn.disabled = false;
-    if (submitText) submitText.textContent = activeRole === 'authority' ? 'Login as Authority Official' : 'Login to Citizen Portal';
+    if (submitText) submitText.textContent = activeRole === 'authority' ? 'Login as Authority Official' : activeRole === 'engineer' ? 'Login as Field Engineer' : 'Login to Citizen Portal';
     if (errorBox) {
       errorBox.textContent = res.error;
       errorBox.classList.remove('hidden');
@@ -259,7 +284,7 @@ async function handleLoginSubmit(e) {
   showToast('Welcome!', `Logged in as ${res.session.user.name}.`);
 
   setTimeout(() => {
-    window.location.href = activeRole === 'authority' ? 'authority.html' : 'citizen.html';
+    window.location.href = activeRole === 'authority' ? 'authority.html' : activeRole === 'engineer' ? 'engineer.html' : 'citizen.html';
   }, 700);
 }
 

@@ -65,10 +65,82 @@ export async function verifyComplaintApi(id, changedBy = "AUTHUSER-0001", remark
   });
 }
 
-export async function assignComplaintApi(id, assignedTo = "AUTHUSER-0001", assignedBy = "AUTHUSER-0001", remarks = "") {
+export async function assignComplaintApi(id, assignedTo = "ENG-0001", assignedBy = "AUTHUSER-0001", remarks = "", expectedCompletionDate = null) {
   return apiRequest(`/complaints/${encodeURIComponent(id)}/assign`, {
     method: "POST",
-    body: JSON.stringify({ assigned_to: assignedTo, assigned_by: assignedBy, remarks }),
+    body: JSON.stringify({
+      assigned_to: assignedTo,
+      assigned_by: assignedBy,
+      remarks,
+      expected_completion_date: expectedCompletionDate
+    }),
+  });
+}
+
+export async function fetchEngineersApi() {
+  return apiRequest("/engineers");
+}
+
+export async function fetchNotificationsApi(recipientId) {
+  const q = recipientId ? `?recipient_id=${encodeURIComponent(recipientId)}` : "";
+  return apiRequest(`/notifications${q}`);
+}
+
+export async function markNotificationReadApi(id, recipientId = null) {
+  return apiRequest(`/notifications/${encodeURIComponent(id)}/read`, {
+    method: "PATCH",
+    body: JSON.stringify({ recipient_id: recipientId }),
+  });
+}
+
+export async function markAllNotificationsReadApi(recipientId) {
+  return apiRequest("/notifications/read-all", {
+    method: "PATCH",
+    body: JSON.stringify({ recipient_id: recipientId }),
+  });
+}
+
+export async function getUnreadNotificationCountApi(recipientId) {
+  const q = recipientId ? `?recipient_id=${encodeURIComponent(recipientId)}` : "";
+  return apiRequest(`/notifications/unread-count${q}`);
+}
+
+export async function fetchEngineerTasksApi(engineerId = "ENG-0001") {
+  const q = engineerId ? `?engineer_id=${encodeURIComponent(engineerId)}` : "";
+  return apiRequest(`/engineer/tasks${q}`);
+}
+
+export async function acknowledgeEngineerTaskApi(id, engineerId = "ENG-0001") {
+  return apiRequest(`/engineer/tasks/${encodeURIComponent(id)}/acknowledge`, {
+    method: "POST",
+    body: JSON.stringify({ engineer_id: engineerId }),
+  });
+}
+
+export async function startEngineerRepairApi(id, engineerId = "ENG-0001", description = "") {
+  return apiRequest(`/engineer/tasks/${encodeURIComponent(id)}/start-repair`, {
+    method: "POST",
+    body: JSON.stringify({ engineer_id: engineerId, description }),
+  });
+}
+
+export async function updateEngineerProgressApi(id, engineerId = "ENG-0001", progressPct = 50, notes = "") {
+  return apiRequest(`/engineer/tasks/${encodeURIComponent(id)}/update-progress`, {
+    method: "POST",
+    body: JSON.stringify({ engineer_id: engineerId, progress_pct: progressPct, notes }),
+  });
+}
+
+export async function submitEngineerCompletionApi(id, engineerId = "ENG-0001", data = {}) {
+  return apiRequest(`/engineer/tasks/${encodeURIComponent(id)}/submit-completion`, {
+    method: "POST",
+    body: JSON.stringify({
+      engineer_id: engineerId,
+      completion_image_path: data.imageUrl || data.completion_image_path,
+      notes: data.notes,
+      materials_used: data.materials_used,
+      monitoring_days: data.monitoring_days || 60
+    }),
   });
 }
 
@@ -141,6 +213,16 @@ if (typeof window !== "undefined") {
     createComplaint,
     verifyComplaintApi,
     assignComplaintApi,
+    fetchEngineersApi,
+    fetchNotificationsApi,
+    markNotificationReadApi,
+    markAllNotificationsReadApi,
+    getUnreadNotificationCountApi,
+    fetchEngineerTasksApi,
+    acknowledgeEngineerTaskApi,
+    startEngineerRepairApi,
+    updateEngineerProgressApi,
+    submitEngineerCompletionApi,
     fastForwardAssignmentApi,
     markInProgressApi,
     markRepairCompletedApi,

@@ -13,6 +13,7 @@ import { renderBoundingBoxesOnCanvas } from './boundingBox.js';
 import { AuthService } from './auth.js';
 import { I18n } from './i18n.js';
 import { fetchComplaintById } from './api.js';
+import { NotificationUI } from './notifications.js';
 
 // Application State
 let currentStep = 1;
@@ -24,6 +25,7 @@ let activeAiResult = null;
 let activePriority = null;
 let leafletMapInstance = null;
 let activeCitizenSession = null;
+let citizenNotifications = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
   // Enforce Citizen Route Protection
@@ -33,6 +35,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (window.lucide) window.lucide.createIcons();
 
   initCitizenProfile();
+
+  // Initialize In-App Notification System
+  const citizenId = activeCitizenSession?.user?.citizenId || activeCitizenSession?.user?.id || 'CIT-0001';
+  citizenNotifications = new NotificationUI({
+    containerId: 'citizenNotificationBellContainer',
+    recipientId: citizenId,
+    onSelectComplaint: (cid) => openTrackingModal(cid)
+  });
+
   await MargDrishtiStore.fetchFromBackend();
   initKPIs();
   initMyReports();
@@ -1152,14 +1163,93 @@ function renderTrackingModalContent(c) {
 
   // Meta Info
   if (metaBox) {
+    const assignedEngText = c.assignedOfficer
+      ? `${c.assignedOfficer.name || 'Assigned Engineer'} (${c.assignedOfficer.officerId || c.assignedOfficer.user_id || 'ENG'}) &bull; ${c.assignedOfficer.designation || 'Maintenance Unit'}`
+      : 'Pending Assignment';
+
     metaBox.innerHTML = `
       <div><strong>Damage Type:</strong> ${c.damageType} &bull; ${Math.round((c.confidence || 0.9) * 100)}% Confidence</div>
       <div><strong>Priority Index:</strong> <span class="badge ${c.priority.score >= 80 ? 'badge-priority-critical' : 'badge-priority-high'}">${c.priority.score}/100</span></div>
       <div><strong>Location:</strong> ${c.location.roadName} (${c.location.ward || 'Municipal Ward'})</div>
       <div><strong>Coordinates:</strong> ${c.location.latitude.toFixed(4)}, ${c.location.longitude.toFixed(4)}</div>
-      <div><strong>Assigned Officer:</strong> ${c.assignedOfficer ? `${c.assignedOfficer.name} (${c.assignedOfficer.designation})` : 'Pending Assignment'}</div>
+      <div><strong>Assigned Engineer:</strong> ${assignedEngText}</div>
       <div><strong>Resolution Level:</strong> <strong>${c.resolution || (c.status === 'RESOLVED' ? 100 : c.status === 'REINSPECTION_REQUIRED' ? 50 : 90)}%</strong></div>
     `;
+  }
+
+  // Prototype Explainable Priority Breakdown (0–100)
+  const priorityCard = document.getElementById('trackModalPriorityCard');
+  if (priorityCard) {
+    const p = c.priority || {};
+    const b = p.breakdown || {};
+    const factors = b.factors || {};
+
+    const prioScore = p.score != null ? p.score : (c.priority_score != null ? Number(c.priority_score) : 75);
+    const prioLevel = p.level || (prioScore >= 80 ? 'CRITICAL' : prioScore >= 60 ? 'HIGH' : prioScore >= 40 ? 'MEDIUM' : 'LOW');
+
+    const sevScore = factors.damageSeverity?.score ?? Math.round(((b.damageSeverity || 24) / 30) * 100);
+    const sevWeighted = b.damageSeverity != null ? b.damageSeverity : Math.round(sevScore * 0.30);
+
+    const extScore = factors.damageExtent?.score ?? Math.round(((b.damageExtent || 16) / 20) * 100);
+    const extWeighted = b.damageExtent != null ? b.damageExtent : Math.round(extScore * 0.20);
+
+    const roadScore = factors.roadImportance?.score ?? Math.round(((b.roadImportance || 18) / 20) * 100);
+    const roadWeighted = b.roadImportance != null ? b.roadImportance : Math.round(roadScore * 0.20);
+
+    const trafScore = factors.trafficExposure?.score ?? Math.round(((b.trafficExposure || 8) / 10) * 100);
+    const trafWeighted = b.trafficExposure != null ? b.trafficExposure : Math.round(trafScore * 0.10);
+
+    const sensScore = factors.sensitiveLocation?.score ?? Math.round(((b.sensitiveLocation || 8) / 10) * 100);
+    const sensWeighted = b.sensitiveLocation != null ? b.sensitiveLocation : Math.round(sensScore * 0.10);
+
+    const corrScore = factors.corroboratingEvidence?.score ?? Math.round(((b.corroboratingEvidence || 8) / 10) * 100);
+    const corrWeighted = b.corroboratingEvidence != null ? b.corroboratingEvidence : Math.round(corrScore * 0.10);
+
+    priorityCard.innerHTML = `
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+        <div style="font-weight: 700; font-size: 0.85rem; display: flex; align-items: center; gap: 6px;">
+          <i data-lucide="bar-chart-2" style="width: 16px; height: 16px; color: var(--cyan-dark);"></i>
+          <span>Prototype Explainable Priority Model (0–100)</span>
+        </div>
+        <span class="badge font-mono ${prioScore >= 80 ? 'badge-priority-critical' : prioScore >= 60 ? 'badge-priority-high' : 'badge-priority-medium'}">${prioScore}/100 ${prioLevel}</span>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; font-size: 0.78rem;">
+        <div class="factor-bar-row">
+          <div class="factor-bar-labels"><span>1. Damage Severity (30%)</span><span class="font-mono">${sevWeighted}/30 (${sevScore}/100)</span></div>
+          <div class="factor-bar-track"><div class="factor-bar-fill" style="width: ${(sevWeighted / 30) * 100}%;"></div></div>
+          <div style="font-size: 0.68rem; color: var(--text-muted); margin-top: 2px;">${factors.damageSeverity?.method || 'YOLO11 defect impact rating'}</div>
+        </div>
+        <div class="factor-bar-row">
+          <div class="factor-bar-labels"><span>2. Damage Extent (20%)</span><span class="font-mono">${extWeighted}/20 (${extScore}/100)</span></div>
+          <div class="factor-bar-track"><div class="factor-bar-fill" style="width: ${(extWeighted / 20) * 100}%;"></div></div>
+          <div style="font-size: 0.68rem; color: var(--text-muted); margin-top: 2px;">${factors.damageExtent?.method || 'Bounding box defect area coverage'}</div>
+        </div>
+        <div class="factor-bar-row">
+          <div class="factor-bar-labels"><span>3. Road Importance (20%)</span><span class="font-mono">${roadWeighted}/20 (${roadScore}/100)</span></div>
+          <div class="factor-bar-track"><div class="factor-bar-fill" style="width: ${(roadWeighted / 20) * 100}%;"></div></div>
+          <div style="font-size: 0.68rem; color: var(--text-muted); margin-top: 2px;">${factors.roadImportance?.method || 'Corridor hierarchy classification'}</div>
+        </div>
+        <div class="factor-bar-row">
+          <div class="factor-bar-labels"><span>4. Traffic Exposure (10%)</span><span class="font-mono">${trafWeighted}/10 (${trafScore}/100)</span></div>
+          <div class="factor-bar-track"><div class="factor-bar-fill" style="width: ${(trafWeighted / 10) * 100}%;"></div></div>
+          <div style="font-size: 0.68rem; color: var(--text-muted); margin-top: 2px;">${factors.trafficExposure?.method || 'Public transit & vehicle exposure rating'}</div>
+        </div>
+        <div class="factor-bar-row">
+          <div class="factor-bar-labels"><span>5. Sensitive Location Risk (10%)</span><span class="font-mono">${sensWeighted}/10 (${sensScore}/100)</span></div>
+          <div class="factor-bar-track"><div class="factor-bar-fill" style="width: ${(sensWeighted / 10) * 100}%;"></div></div>
+          <div style="font-size: 0.68rem; color: var(--text-muted); margin-top: 2px;">${factors.sensitiveLocation?.method || 'Adjacent school/hospital civic proximity'}</div>
+        </div>
+        <div class="factor-bar-row">
+          <div class="factor-bar-labels"><span>6. Corroborating Evidence (10%)</span><span class="font-mono">${corrWeighted}/10 (${corrScore}/100)</span></div>
+          <div class="factor-bar-track"><div class="factor-bar-fill" style="width: ${(corrWeighted / 10) * 100}%;"></div></div>
+          <div style="font-size: 0.68rem; color: var(--text-muted); margin-top: 2px;">${factors.corroboratingEvidence?.method || 'Corridor citizen report corroboration'}</div>
+        </div>
+      </div>
+      <div style="font-size: 0.72rem; color: var(--text-secondary); line-height: 1.4; margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid var(--border-light);">
+        ${p.rationale || 'Evaluated per MargDrishti Prototype Explainable Priority Model.'}
+      </div>
+    `;
+    if (window.lucide) window.lucide.createIcons();
   }
 
   // 7-Stage Lifecycle Stepper
