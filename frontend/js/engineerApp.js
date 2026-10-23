@@ -465,6 +465,59 @@ function initModals() {
   }
 
   const compForm = document.getElementById('submitCompletionForm');
+  const compPhotoFileInput = document.getElementById('compPhotoFileInput');
+  const compImageUrlInput = document.getElementById('compImageUrlInput');
+
+  // Handle local repair photo file selection
+  if (compPhotoFileInput) {
+    compPhotoFileInput.addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      const fileNameEl = document.getElementById('compPhotoFileName');
+      const afterPreview = document.getElementById('compAfterPreview');
+      const afterPlaceholder = document.getElementById('compAfterPlaceholder');
+      const errorBox = document.getElementById('compErrorBox');
+
+      if (fileNameEl) fileNameEl.textContent = file.name;
+      if (errorBox) errorBox.classList.add('hidden');
+
+      const reader = new FileReader();
+      reader.onload = (loadEvent) => {
+        const dataUrl = loadEvent.target?.result;
+        if (compImageUrlInput) compImageUrlInput.value = dataUrl;
+        if (afterPreview) {
+          afterPreview.src = dataUrl;
+          afterPreview.style.display = 'block';
+        }
+        if (afterPlaceholder) afterPlaceholder.style.display = 'none';
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // Handle manual image URL input preview
+  if (compImageUrlInput) {
+    compImageUrlInput.addEventListener('input', () => {
+      const val = compImageUrlInput.value.trim();
+      const afterPreview = document.getElementById('compAfterPreview');
+      const afterPlaceholder = document.getElementById('compAfterPlaceholder');
+      if (val) {
+        if (afterPreview) {
+          afterPreview.src = val;
+          afterPreview.style.display = 'block';
+        }
+        if (afterPlaceholder) afterPlaceholder.style.display = 'none';
+      } else {
+        if (afterPreview) {
+          afterPreview.src = '';
+          afterPreview.style.display = 'none';
+        }
+        if (afterPlaceholder) afterPlaceholder.style.display = 'block';
+      }
+    });
+  }
+
   if (compForm) {
     compForm.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -472,22 +525,42 @@ function initModals() {
 
       const submitBtn = document.getElementById('btnSubmitCompletion');
       const errorBox = document.getElementById('compErrorBox');
-      const imgUrl = document.getElementById('compImageUrlInput')?.value?.trim();
+      const targetId = document.getElementById('compTargetComplaintId')?.value;
+      const imgUrl = compImageUrlInput?.value?.trim();
       const materials = document.getElementById('compMaterialsInput')?.value?.trim();
       const notes = document.getElementById('compNotesInput')?.value?.trim();
+
+      // Guard: Verification against accidental mismatch
+      if (!targetId || targetId !== selectedTask.complaint_id) {
+        if (errorBox) {
+          errorBox.textContent = 'Complaint ID mismatch. Please re-open the task for the correct complaint.';
+          errorBox.classList.remove('hidden');
+        }
+        return;
+      }
+
+      // Guard: Completion photo is strictly required
+      if (!imgUrl) {
+        if (errorBox) {
+          errorBox.textContent = 'Please upload or provide a repair-completion photo.';
+          errorBox.classList.remove('hidden');
+        }
+        return;
+      }
 
       if (submitBtn) submitBtn.disabled = true;
       if (errorBox) errorBox.classList.add('hidden');
 
       try {
         await submitEngineerCompletionApi(selectedTask.complaint_id, engineerId, {
-          imageUrl: imgUrl || SAMPLE_ROAD_IMAGES.repaired_road,
+          imageUrl: imgUrl,
           materials_used: materials,
           notes: notes,
           monitoring_days: 60
         });
 
-        showToast('Repair Completed', `Evidence submitted for ${selectedTask.complaint_id}. Entered 60-day monitoring. Authority notified.`);
+        const locDesc = selectedTask.address || selectedTask.city || 'original reported location';
+        showToast('Repair Completed', `Evidence submitted for ${selectedTask.complaint_id} at ${locDesc}. Entered 60-day monitoring. Authority notified.`);
         window.closeCompletionModal();
         await loadTasks();
       } catch (err) {
@@ -553,22 +626,69 @@ function openCompletionModal(task) {
   selectedTask = task;
   const modal = document.getElementById('submitCompletionModal');
   const idEl = document.getElementById('compModalComplaintId');
+  const idTextEl = document.getElementById('compModalComplaintIdText');
+  const targetIdInput = document.getElementById('compTargetComplaintId');
+  const targetLatInput = document.getElementById('compTargetLatitude');
+  const targetLngInput = document.getElementById('compTargetLongitude');
   const locEl = document.getElementById('compModalLocation');
+  const coordsEl = document.getElementById('compModalCoords');
   const dmgEl = document.getElementById('compModalDamage');
   const prioEl = document.getElementById('compModalPriority');
   const beforeImg = document.getElementById('compBeforeImg');
   const afterPreview = document.getElementById('compAfterPreview');
+  const afterPlaceholder = document.getElementById('compAfterPlaceholder');
   const imgInput = document.getElementById('compImageUrlInput');
+  const fileInput = document.getElementById('compPhotoFileInput');
+  const fileNameEl = document.getElementById('compPhotoFileName');
   const errorBox = document.getElementById('compErrorBox');
 
+  // Display original complaint ID clearly
   if (idEl) idEl.textContent = task.complaint_id;
+  if (idTextEl) idTextEl.textContent = task.complaint_id;
+  if (targetIdInput) targetIdInput.value = task.complaint_id;
+
+  // Display and lock original complaint location & coordinates
+  const lat = Number(task.latitude);
+  const lng = Number(task.longitude);
+  const hasCoords = Number.isFinite(lat) && Number.isFinite(lng);
+  const latStr = hasCoords ? lat.toFixed(4) : '';
+  const lngStr = hasCoords ? lng.toFixed(4) : '';
+
   if (locEl) locEl.textContent = task.address || task.city || 'Municipal Corridor';
-  if (dmgEl) dmgEl.textContent = task.damage_type || 'POTHOLE';
+  if (coordsEl) coordsEl.textContent = hasCoords ? `${latStr}, ${lngStr}` : 'Recorded with complaint';
+  if (targetLatInput) targetLatInput.value = latStr;
+  if (targetLngInput) targetLngInput.value = lngStr;
+
+  if (dmgEl) dmgEl.textContent = (task.damage_type || 'POTHOLE').replace(/_/g, ' ');
   if (prioEl) prioEl.textContent = `${task.priority_score || 75}/100`;
 
-  if (beforeImg) beforeImg.src = task.image_path || SAMPLE_ROAD_IMAGES.pothole_severe;
-  if (imgInput) imgInput.value = SAMPLE_ROAD_IMAGES.repaired_road;
-  if (afterPreview) afterPreview.src = SAMPLE_ROAD_IMAGES.repaired_road;
+  // Display original citizen defect photo
+  if (beforeImg) {
+    beforeImg.src = task.image_path || '';
+    beforeImg.alt = `Original defect evidence for ${task.complaint_id}`;
+  }
+
+  // Reset file input & prepare after-repair proof preview
+  if (fileInput) fileInput.value = '';
+  const existingCompletion = task.completion_image_path || '';
+  if (imgInput) imgInput.value = existingCompletion;
+
+  if (existingCompletion) {
+    if (afterPreview) {
+      afterPreview.src = existingCompletion;
+      afterPreview.style.display = 'block';
+    }
+    if (afterPlaceholder) afterPlaceholder.style.display = 'none';
+    if (fileNameEl) fileNameEl.textContent = 'Existing evidence attached';
+  } else {
+    if (afterPreview) {
+      afterPreview.src = '';
+      afterPreview.style.display = 'none';
+    }
+    if (afterPlaceholder) afterPlaceholder.style.display = 'block';
+    if (fileNameEl) fileNameEl.textContent = 'No file chosen';
+  }
+
   if (errorBox) errorBox.classList.add('hidden');
 
   if (modal) modal.classList.add('active');
@@ -578,14 +698,9 @@ function openCompletionModal(task) {
 window.closeCompletionModal = function() {
   const modal = document.getElementById('submitCompletionModal');
   if (modal) modal.classList.remove('active');
+  const fileInput = document.getElementById('compPhotoFileInput');
+  if (fileInput) fileInput.value = '';
   selectedTask = null;
-};
-
-window.useSampleRepairPhoto = function() {
-  const imgInput = document.getElementById('compImageUrlInput');
-  const afterPreview = document.getElementById('compAfterPreview');
-  if (imgInput) imgInput.value = SAMPLE_ROAD_IMAGES.repaired_road;
-  if (afterPreview) afterPreview.src = SAMPLE_ROAD_IMAGES.repaired_road;
 };
 
 /* ================= 4. Evidence / Map Modal ================= */

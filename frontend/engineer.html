@@ -323,13 +323,25 @@
           <i data-lucide="camera" style="width: 18px; height: 18px; color: #10b981;"></i>
           <span>Submit Repair-Completion Evidence</span>
         </div>
-        <span class="badge badge-status-assigned" id="compModalComplaintId">MD-000001</span>
+        <span class="badge badge-status-assigned font-mono" id="compModalComplaintId">MD-000000</span>
       </div>
 
       <form id="submitCompletionForm" style="padding: 1.25rem;">
-        <div style="background: var(--bg-subtle); padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1.25rem; font-size: 0.8rem; border: 1px solid var(--border-light);">
-          <div><strong>Road:</strong> <span id="compModalLocation">100 Feet Road, Indiranagar</span></div>
-          <div style="margin-top: 2px;"><strong>Original Hazard:</strong> <span id="compModalDamage">POTHOLE</span> (Priority: <span id="compModalPriority">88/100</span>)</div>
+        <!-- Hidden inputs locking submission to the assigned complaint and original location -->
+        <input type="hidden" id="compTargetComplaintId" name="complaint_id" value="" />
+        <input type="hidden" id="compTargetLatitude" value="" />
+        <input type="hidden" id="compTargetLongitude" value="" />
+
+        <!-- Verified Original Complaint & Location Section -->
+        <div style="background: var(--bg-subtle); padding: 0.85rem 1rem; border-radius: 8px; margin-bottom: 1.25rem; font-size: 0.8rem; border: 1px solid var(--border-light);">
+          <div style="font-weight: 700; color: #0284c7; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 4px;">
+            <i data-lucide="map-pin" style="width: 14px; height: 14px; color: #0284c7;"></i>
+            <span>Original Complaint & Reported Location (Verified)</span>
+          </div>
+          <div><strong>Complaint ID:</strong> <span class="font-mono font-bold" id="compModalComplaintIdText">—</span></div>
+          <div style="margin-top: 2px;"><strong>Reported Location:</strong> <span id="compModalLocation">—</span></div>
+          <div style="margin-top: 2px;"><strong>Original GPS Coordinates:</strong> <span class="font-mono font-bold" id="compModalCoords">—</span></div>
+          <div style="margin-top: 2px;"><strong>Original Hazard:</strong> <span id="compModalDamage">—</span> (Priority: <span id="compModalPriority">—</span>)</div>
         </div>
 
         <!-- Before & After Comparison Preview -->
@@ -346,18 +358,27 @@
               <span class="demo-honesty-tag" style="font-size: 0.65rem;">Required Proof</span>
             </label>
             <div style="height: 140px; border-radius: 8px; border: 1px solid var(--border-medium); overflow: hidden; background: #0f172a; display: flex; align-items: center; justify-content: center;">
-              <img id="compAfterPreview" src="https://images.unsplash.com/photo-1590496793929-36417d3117de?auto=format&fit=crop&w=600&q=80" alt="Repaired Road Proof" style="width: 100%; height: 100%; object-fit: cover;" />
+              <img id="compAfterPreview" src="" alt="Repaired Road Proof" style="width: 100%; height: 100%; object-fit: cover; display: none;" />
+              <div id="compAfterPlaceholder" style="color: #94a3b8; font-size: 0.75rem; text-align: center; padding: 0.5rem;">
+                <i data-lucide="image" style="width: 28px; height: 28px; margin: 0 auto 4px auto; color: #64748b; display: block;"></i>
+                <span>Upload completion photo</span>
+              </div>
             </div>
           </div>
         </div>
 
         <!-- Photo Selector / Upload -->
         <div class="form-group">
-          <label class="form-label">Repaired Road Evidence Image URL / Preset</label>
-          <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
-            <input type="text" class="form-control" id="compImageUrlInput" value="https://images.unsplash.com/photo-1590496793929-36417d3117de?auto=format&fit=crop&w=1000&q=80" placeholder="https://..." required />
-            <button type="button" class="btn btn-secondary btn-sm" onclick="window.useSampleRepairPhoto()">Sample Photo</button>
+          <label class="form-label">Upload Repair-Completion Photo</label>
+          <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem;">
+            <input type="file" id="compPhotoFileInput" accept="image/*" style="display: none;" />
+            <button type="button" class="btn btn-secondary btn-sm" id="btnUploadRepairPhoto" onclick="document.getElementById('compPhotoFileInput').click()">
+              <i data-lucide="upload"></i>
+              <span>Choose Photo File</span>
+            </button>
+            <span id="compPhotoFileName" style="font-size: 0.75rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">No file chosen</span>
           </div>
+          <input type="text" class="form-control" id="compImageUrlInput" placeholder="Or enter image URL (https://...)" style="font-size: 0.8rem;" />
         </div>
 
         <div class="form-group">

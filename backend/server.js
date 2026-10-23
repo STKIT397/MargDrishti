@@ -1785,6 +1785,11 @@ app.post("/api/engineer/tasks/:id/submit-completion", async (req, res) => {
       return res.status(403).json({ message: "You are not authorized to submit completion for this complaint." });
     }
 
+    if (!completion_image_path || !String(completion_image_path).trim()) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ message: "Repair-completion photo evidence is required." });
+    }
+
     const engineerName = asnCheck.rows[0].engineer_name;
 
     // 1. Update repairs table
@@ -1882,10 +1887,21 @@ app.post("/api/engineer/tasks/:id/submit-completion", async (req, res) => {
 
     await client.query("COMMIT");
 
+    // Fetch original location details to return with complaint
+    const locRes = await client.query(
+      `SELECT location_id, latitude, longitude, address, city, district, state
+       FROM road.complaint_locations
+       WHERE complaint_id = $1 LIMIT 1`,
+      [id]
+    );
+
     res.json({
       success: true,
       message: "Repair-completion evidence submitted successfully. Entered post-repair monitoring.",
-      complaint: uC.rows[0],
+      complaint: {
+        ...uC.rows[0],
+        location: locRes.rows[0] || null
+      },
       repair: repairRow
     });
   } catch (err) {

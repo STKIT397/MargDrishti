@@ -89,21 +89,15 @@
     <!-- LEFT SIDEBAR -->
     <aside class="map-sidebar">
       
-      <!-- Tab Controls -->
-      <div style="padding: 0.85rem 1rem 0 1rem;">
-        <div class="modal-role-tabs" style="margin-bottom: 0.75rem;">
-          <button type="button" class="role-tab active" id="tabBtnExplore">
-            <i data-lucide="map-pin" style="width: 15px; height: 15px;"></i>
-            <span>Explore Potholes</span>
-          </button>
-          <button type="button" class="role-tab" id="tabBtnRoute">
-            <i data-lucide="navigation" style="width: 15px; height: 15px;"></i>
-            <span>Find Best Route</span>
-          </button>
+      <!-- Sidebar Header -->
+      <div style="padding: 0.85rem 1rem 0.75rem 1rem; border-bottom: 1px solid var(--border-light); margin-bottom: 0.75rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem; font-weight: 700; font-size: 0.95rem; color: var(--text-primary);">
+          <i data-lucide="map-pin" style="width: 18px; height: 18px; color: var(--cyan-dark);"></i>
+          <span>Explore Potholes</span>
         </div>
       </div>
 
-      <!-- ================= TAB 1: EXPLORE POTHOLES ================= -->
+      <!-- ================= EXPLORE POTHOLES ================= -->
       <div id="sidebarExplorePanel" style="display: block;">
         <!-- Stats Strip -->
         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; padding: 0 1rem 0.75rem 1rem; border-bottom: 1px solid var(--border-light);">
@@ -140,60 +134,6 @@
         <div id="exploreHazardsList" style="overflow-y: auto; max-height: calc(100vh - 285px);">
           <!-- Injected via mapApp.js -->
         </div>
-      </div>
-
-      <!-- ================= TAB 2: FIND BEST ROUTE ================= -->
-      <div id="sidebarRoutePanel" style="display: none; padding: 1rem;">
-        
-        <div style="margin-bottom: 1rem;">
-          <div style="font-size: 0.72rem; font-weight: 800; color: #0284c7; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.25rem;">
-            Pothole-Aware Navigation
-          </div>
-          <h3 style="font-family: var(--font-display); font-size: 1.1rem; font-weight: 800; color: var(--text-primary); margin-bottom: 0.5rem;">
-            Find Safer, Smoother Route
-          </h3>
-          <p style="font-size: 0.76rem; color: var(--text-secondary); line-height: 1.4;">
-            Analyzes road defect density and severity along route alternatives to maximize safety score.
-          </p>
-        </div>
-
-        <!-- Quick 1-Click Demo Corridors -->
-        <div style="margin-bottom: 1rem;">
-          <label class="form-label" style="font-size: 0.72rem;">Demo Route Corridors</label>
-          <div id="routePresetsContainer" style="display: flex; flex-direction: column; gap: 0.35rem;">
-            <!-- Injected via mapApp.js -->
-          </div>
-        </div>
-
-        <!-- Inputs -->
-        <div style="display: flex; flex-direction: column; gap: 0.6rem; margin-bottom: 1rem;">
-          <div class="input-wrapper">
-            <i data-lucide="circle-dot" class="input-icon" style="color: #0284c7;"></i>
-            <input type="text" id="inputRouteSource" class="form-control" value="100 Feet Road, Indiranagar" style="font-size: 0.8rem; padding-left: 2.2rem;" />
-          </div>
-          <div class="input-wrapper">
-            <i data-lucide="map-pin" class="input-icon" style="color: #10b981;"></i>
-            <input type="text" id="inputRouteDest" class="form-control" value="5th Block, Koramangala" style="font-size: 0.8rem; padding-left: 2.2rem;" />
-          </div>
-        </div>
-
-        <!-- Mode Pills -->
-        <div style="display: flex; gap: 0.4rem; margin-bottom: 1rem;">
-          <button type="button" class="route-mode-pill active" data-mode="safest">🛡️ Safest</button>
-          <button type="button" class="route-mode-pill" data-mode="fastest">⚡ Fastest</button>
-          <button type="button" class="route-mode-pill" data-mode="balanced">⚖️ Balanced</button>
-        </div>
-
-        <button type="button" class="btn btn-primary" id="btnCalculateRoute" style="width: 100%; padding: 0.65rem; font-size: 0.82rem; margin-bottom: 1.25rem;">
-          <i data-lucide="compass" style="width: 14px; height: 14px;"></i>
-          <span>Calculate Pothole-Aware Routes</span>
-        </button>
-
-        <!-- Route Comparison Cards -->
-        <div id="routeComparisonCards">
-          <!-- Injected dynamically via mapApp.js -->
-        </div>
-
       </div>
 
     </aside>

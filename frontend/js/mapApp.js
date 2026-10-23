@@ -1,41 +1,30 @@
 /**
- * MargDrishti — Pothole Map & Pothole-Aware Route Planner Controller
+ * MargDrishti — Pothole Map GIS Controller
  * Full GIS integration using Leaflet + OpenStreetMap.
- * Connects directly with shared MargDrishtiStore and RouteService.
+ * Connects directly with shared MargDrishtiStore.
  */
 import { GeoService } from './geoService.js';
 import { MargDrishtiStore } from './store.js';
-import { RouteService, DEMO_PRESET_ROUTES } from './routeService.js';
 import { AuthService } from './auth.js';
 
 let mapInstance = null;
 let markersLayerGroup = null;
-let routesLayerGroup = null;
 let currentLocationMarker = null;
 let currentLocationCircle = null;
-let activeTab = 'explore'; // 'explore' | 'route'
 let activeFilter = 'ALL';
-let currentActiveRouteKey = 'safest';
-let currentCalculatedRoutes = null;
-let currentPresetKey = 'indiranagar_to_koramangala';
 
 document.addEventListener('DOMContentLoaded', async () => {
   if (window.lucide) window.lucide.createIcons();
 
   initMapProfile();
   await MargDrishtiStore.fetchFromBackend();
-initLeafletMap();
-initCurrentLocation();
-initSidebarTabs();
-initFilters();
-initRoutePlanner();
+  initLeafletMap();
+  initCurrentLocation();
+  initFilters();
 
   // Listen for shared store changes (e.g. if authority resolves or citizen submits)
   window.addEventListener('margdrishti:updated', () => {
     refreshMapData();
-    if (activeTab === 'route' && currentPresetKey) {
-      calculateAndRenderRoutes(currentPresetKey);
-    }
   });
 
   // Demo reset button
@@ -112,7 +101,6 @@ function initLeafletMap() {
   }).addTo(mapInstance);
 
   markersLayerGroup = L.layerGroup().addTo(mapInstance);
-  routesLayerGroup = L.layerGroup().addTo(mapInstance);
 
   // Update visible potholes on move
   mapInstance.on('moveend', () => {
@@ -317,36 +305,6 @@ function updateVisibleCount() {
 }
 
 /* ================= 3. Explore Sidebar & Filters ================= */
-function initSidebarTabs() {
-  const tabExplore = document.getElementById('tabBtnExplore');
-  const tabRoute = document.getElementById('tabBtnRoute');
-  const panelExplore = document.getElementById('sidebarExplorePanel');
-  const panelRoute = document.getElementById('sidebarRoutePanel');
-
-  if (tabExplore && tabRoute) {
-    tabExplore.addEventListener('click', () => {
-      activeTab = 'explore';
-      tabExplore.classList.add('active');
-      tabRoute.classList.remove('active');
-      if (panelExplore) panelExplore.style.display = 'block';
-      if (panelRoute) panelRoute.style.display = 'none';
-
-      // Clear route lines when in explore mode
-      if (routesLayerGroup) routesLayerGroup.clearLayers();
-    });
-
-    tabRoute.addEventListener('click', () => {
-      activeTab = 'route';
-      tabRoute.classList.add('active');
-      tabExplore.classList.remove('active');
-      if (panelExplore) panelExplore.style.display = 'none';
-      if (panelRoute) panelRoute.style.display = 'block';
-
-      // Automatically calculate default preset
-      calculateAndRenderRoutes(currentPresetKey);
-    });
-  }
-}
 
 function initFilters() {
   const filterBtns = document.querySelectorAll('.map-filter-btn');
@@ -450,203 +408,4 @@ window.handleViewComplaint = function(complaintId) {
   } else {
     window.location.href = `citizen.html?track=${complaintId}`;
   }
-};
-
-/* ================= 4. Pothole-Aware Route Planner ================= */
-function initRoutePlanner() {
-  // Preset buttons
-  const presetContainer = document.getElementById('routePresetsContainer');
-  if (presetContainer) {
-    presetContainer.innerHTML = DEMO_PRESET_ROUTES.map((p, idx) => `
-      <button type="button" class="btn btn-secondary btn-sm preset-route-btn ${idx === 0 ? 'active' : ''}" data-key="${p.id}" style="font-size: 0.75rem; text-align: left; padding: 0.4rem 0.65rem;">
-        <span style="font-weight: 700;">⚡ ${p.name}</span>
-      </button>
-    `).join('');
-
-    const presetBtns = presetContainer.querySelectorAll('.preset-route-btn');
-    presetBtns.forEach(btn => {
-      btn.addEventListener('click', () => {
-        presetBtns.forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        currentPresetKey = btn.dataset.key;
-        
-        const preset = DEMO_PRESET_ROUTES.find(r => r.id === currentPresetKey);
-        if (preset) {
-          const srcInput = document.getElementById('inputRouteSource');
-          const dstInput = document.getElementById('inputRouteDest');
-          if (srcInput) srcInput.value = preset.source;
-          if (dstInput) dstInput.value = preset.destination;
-        }
-
-        calculateAndRenderRoutes(currentPresetKey);
-      });
-    });
-  }
-
-  // Calculate Button
-  const btnCalculate = document.getElementById('btnCalculateRoute');
-  if (btnCalculate) {
-    btnCalculate.addEventListener('click', () => {
-      calculateAndRenderRoutes(currentPresetKey);
-    });
-  }
-
-  // Route option tab buttons (Safest, Fastest, Balanced)
-  const modeBtns = document.querySelectorAll('.route-mode-pill');
-  modeBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      modeBtns.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      selectRouteOption(btn.dataset.mode);
-    });
-  });
-}
-
-function calculateAndRenderRoutes(presetKey) {
-  currentCalculatedRoutes = RouteService.calculateRoutes(presetKey);
-  renderRouteComparisonCards(currentCalculatedRoutes);
-  selectRouteOption(currentActiveRouteKey);
-}
-
-function renderRouteComparisonCards(result) {
-  const container = document.getElementById('routeComparisonCards');
-  if (!container) return;
-
-  const { safest, fastest, balanced } = result.routes;
-
-  container.innerHTML = `
-    <!-- SAFEST (RECOMMENDED) -->
-    <div class="route-card ${currentActiveRouteKey === 'safest' ? 'active recommended' : ''}" onclick="window.selectRouteOption('safest')">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
-        <span class="badge badge-status-resolved" style="font-size: 10px; font-weight: 800; letter-spacing: 0.05em;">
-          🟢 ${safest.badge}
-        </span>
-        <div style="text-align: right;">
-          <span style="font-family: monospace; font-size: 12px; font-weight: 800; color: #059669;">
-            Safety: ${safest.safetyScore}/100
-          </span>
-          <span style="font-size: 10px; color: var(--text-muted); display: block; font-family: monospace;">Score: ${safest.routeScore}</span>
-        </div>
-      </div>
-      <div style="font-size: 0.95rem; font-weight: 800; color: var(--text-primary); margin-bottom: 4px;">
-        ${safest.title}
-      </div>
-      <div style="font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 8px;">
-        ${safest.distanceKm} km &bull; ${safest.durationMins} mins &bull; <strong>${safest.potholeCount} active potholes</strong> (${safest.criticalCount} critical)
-      </div>
-      <div class="route-advisory-pill" style="background: #ecfdf5; color: #065f46; border: 1px solid rgba(16, 185, 129, 0.3);">
-        ${safest.explanation}
-      </div>
-    </div>
-
-    <!-- FASTEST -->
-    <div class="route-card ${currentActiveRouteKey === 'fastest' ? 'active' : ''}" onclick="window.selectRouteOption('fastest')" style="margin-top: 0.75rem;">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
-        <span class="badge" style="background: #fef3c7; color: #92400e; font-size: 10px; font-weight: 800;">
-          🟡 ${fastest.badge}
-        </span>
-        <div style="text-align: right;">
-          <span style="font-family: monospace; font-size: 12px; font-weight: 800; color: #b45309;">
-            Safety: ${fastest.safetyScore}/100
-          </span>
-          <span style="font-size: 10px; color: var(--text-muted); display: block; font-family: monospace;">Score: ${fastest.routeScore}</span>
-        </div>
-      </div>
-      <div style="font-size: 0.95rem; font-weight: 800; color: var(--text-primary); margin-bottom: 4px;">
-        ${fastest.title}
-      </div>
-      <div style="font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 8px;">
-        ${fastest.distanceKm} km &bull; ${fastest.durationMins} mins &bull; <strong style="color: ${fastest.potholeCount > 0 ? '#b91c1c' : '#059669'};">${fastest.potholeCount} active potholes</strong> (${fastest.criticalCount} critical)
-      </div>
-      <div class="route-advisory-pill" style="background: #fffbeb; color: #92400e; border: 1px solid rgba(245, 158, 11, 0.3);">
-        ${fastest.explanation}
-      </div>
-    </div>
-
-    <!-- BALANCED -->
-    <div class="route-card ${currentActiveRouteKey === 'balanced' ? 'active' : ''}" onclick="window.selectRouteOption('balanced')" style="margin-top: 0.75rem;">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
-        <span class="badge" style="background: #e0f2fe; color: #0369a1; font-size: 10px; font-weight: 800;">
-          🔵 ${balanced.badge}
-        </span>
-        <div style="text-align: right;">
-          <span style="font-family: monospace; font-size: 12px; font-weight: 800; color: #0284c7;">
-            Safety: ${balanced.safetyScore}/100
-          </span>
-          <span style="font-size: 10px; color: var(--text-muted); display: block; font-family: monospace;">Score: ${balanced.routeScore}</span>
-        </div>
-      </div>
-      <div style="font-size: 0.95rem; font-weight: 800; color: var(--text-primary); margin-bottom: 4px;">
-        ${balanced.title}
-      </div>
-      <div style="font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 8px;">
-        ${balanced.distanceKm} km &bull; ${balanced.durationMins} mins &bull; <strong>${balanced.potholeCount} active potholes</strong> (${balanced.criticalCount} critical)
-      </div>
-      <div class="route-advisory-pill" style="background: #f0f9ff; color: #0369a1; border: 1px solid rgba(14, 165, 233, 0.3);">
-        ${balanced.explanation}
-      </div>
-    </div>
-  `;
-}
-
-window.selectRouteOption = function(modeKey) {
-  currentActiveRouteKey = modeKey;
-
-  // Highlight selected card
-  document.querySelectorAll('.route-card').forEach(card => card.classList.remove('active'));
-  const targetCard = document.querySelector(`.route-card[onclick*="${modeKey}"]`);
-  if (targetCard) targetCard.classList.add('active');
-
-  // Highlight mode pill
-  document.querySelectorAll('.route-mode-pill').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.mode === modeKey);
-  });
-
-  if (!currentCalculatedRoutes || !routesLayerGroup || !mapInstance) return;
-
-  routesLayerGroup.clearLayers();
-
-  const selectedRoute = currentCalculatedRoutes.routes[modeKey];
-  if (!selectedRoute) return;
-
-  // Draw other routes with subtle opacity
-  Object.keys(currentCalculatedRoutes.routes).forEach(key => {
-    if (key !== modeKey) {
-      const other = currentCalculatedRoutes.routes[key];
-      const otherPolyline = L.polyline(other.waypoints, {
-        color: '#94a3b8',
-        weight: 3.5,
-        opacity: 0.45,
-        dashArray: '6, 6'
-      });
-      routesLayerGroup.addLayer(otherPolyline);
-    }
-  });
-
-  // Draw active chosen route with prominent color
-  const activePolyline = L.polyline(selectedRoute.waypoints, {
-    color: selectedRoute.color,
-    weight: 6,
-    opacity: 0.9
-  });
-  routesLayerGroup.addLayer(activePolyline);
-
-  // Start & End markers
-  const startPt = selectedRoute.waypoints[0];
-  const endPt = selectedRoute.waypoints[selectedRoute.waypoints.length - 1];
-
-  const startIcon = L.divIcon({
-    html: '<div style="background: #0284c7; color: #fff; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 11px; border: 2px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">A</div>',
-    iconSize: [24, 24]
-  });
-  const endIcon = L.divIcon({
-    html: '<div style="background: #10b981; color: #fff; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 11px; border: 2px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">B</div>',
-    iconSize: [24, 24]
-  });
-
-  routesLayerGroup.addLayer(L.marker(startPt, { icon: startIcon }).bindTooltip('Start Location'));
-  routesLayerGroup.addLayer(L.marker(endPt, { icon: endIcon }).bindTooltip('Destination'));
-
-  // Fit map bounds to route
-  mapInstance.fitBounds(activePolyline.getBounds(), { padding: [40, 40] });
 };
