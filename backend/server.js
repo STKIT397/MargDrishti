@@ -31,6 +31,64 @@ function generateComplaintId() {
 }
 
 // -------------------------------------------------------------
+// Authentication, Session Token & RBAC Authorization
+// -------------------------------------------------------------
+const AUTH_SECRET = process.env.SESSION_SECRET || "margdrishti_auth_secret_key_2026_sih";
+
+function signToken(payload) {
+  const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = crypto.createHmac("sha256", AUTH_SECRET).update(data).digest("base64url");
+  return `${data}.${signature}`;
+}
+
+function verifyToken(token) {
+  if (!token || typeof token !== "string" || !token.includes(".")) return null;
+  const parts = token.split(".");
+  if (parts.length !== 2) return null;
+  const [data, signature] = parts;
+  try {
+    const expectedSignature = crypto.createHmac("sha256", AUTH_SECRET).update(data).digest("base64url");
+    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature))) {
+      return null;
+    }
+    const payload = JSON.parse(Buffer.from(data, "base64url").toString());
+    if (payload.exp && Date.now() > payload.exp) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function extractToken(req) {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    return authHeader.slice(7).trim();
+  }
+  if (req.headers["x-auth-token"]) {
+    return String(req.headers["x-auth-token"]).trim();
+  }
+  if (req.query && req.query.token) {
+    return String(req.query.token).trim();
+  }
+  return null;
+}
+
+function authenticateUser(req, res, next) {
+  const token = extractToken(req);
+  if (!token) {
+    return res.status(401).json({ message: "Authentication required. Please log in." });
+  }
+
+  const payload = verifyToken(token);
+  if (!payload || !payload.user_id) {
+    return res.status(401).json({ message: "Invalid or expired session token. Please log in again." });
+  }
+
+  req.user = payload;
+  next();
+}
+
+// -------------------------------------------------------------
 // Helper: Persistent In-App Notification Dispatcher
 // -------------------------------------------------------------
 async function createNotification(dbClient, { recipient_id, complaint_id, title, message, event_type, metadata = {} }) {
@@ -209,6 +267,10 @@ app.post("/api/auth/login", async (req, res) => {
     return res.status(400).json({ message: "Email or User ID is required." });
   }
 
+  if (!loginPass) {
+    return res.status(400).json({ message: "Password is required." });
+  }
+
   try {
     // Look up user by user_id, email, or phone matching role (or matching engineer/authority dual-role)
     const result = await pool.query(
@@ -225,15 +287,15 @@ app.post("/api/auth/login", async (req, res) => {
 
     let user = result.rows[0];
 
-    // Support demo aliases if database holds CIT-0001, AUTHUSER-0001, or ENG-0001
+    // Support explicit demo aliases only
     if (!user) {
-      if (loginRole === "CITIZEN" && (loginIdent.toLowerCase() === "citizen@margdrishti.demo" || loginIdent.toUpperCase().startsWith("CIT-"))) {
+      if (loginRole === "CITIZEN" && loginIdent.toLowerCase() === "citizen@margdrishti.demo") {
         const fallback = await pool.query(`SELECT * FROM road.users WHERE user_id = 'CIT-0001' AND role = 'CITIZEN'`);
         user = fallback.rows[0];
-      } else if (loginRole === "AUTHORITY" && (loginIdent.toLowerCase() === "authority@margdrishti.demo" || loginIdent.toUpperCase().startsWith("AUT"))) {
+      } else if (loginRole === "AUTHORITY" && loginIdent.toLowerCase() === "authority@margdrishti.demo") {
         const fallback = await pool.query(`SELECT * FROM road.users WHERE user_id = 'AUTHUSER-0001' AND role = 'AUTHORITY'`);
         user = fallback.rows[0];
-      } else if (loginRole === "ENGINEER" && (loginIdent.toLowerCase().includes("engineer") || loginIdent.toUpperCase().startsWith("ENG-"))) {
+      } else if (loginRole === "ENGINEER" && (loginIdent.toLowerCase() === "engineer@margdrishti.demo" || loginIdent.toLowerCase() === "rajesh.engineer@margdrishti.demo")) {
         const fallback = await pool.query(`SELECT * FROM road.users WHERE user_id = 'ENG-0001' AND role = 'ENGINEER'`);
         user = fallback.rows[0];
       }
@@ -249,23 +311,28 @@ app.post("/api/auth/login", async (req, res) => {
       });
     }
 
-    // Verify password: allow stored password_hash or standard demo passwords
+    // Verify password: check stored password_hash or standard registered demo passwords
     const isValidPass =
-      !loginPass ||
       user.password_hash === loginPass ||
-      user.password_hash === "demo_hash_123" ||
-      user.password_hash === "demo_hash_456" ||
-      (loginRole === "CITIZEN" && loginPass === "Citizen@123") ||
-      (loginRole === "AUTHORITY" && loginPass === "Authority@123") ||
-      (loginRole === "ENGINEER" && (loginPass === "Engineer@123" || loginPass === "Authority@123"));
+      (user.user_id === "CIT-0001" && loginPass === "Citizen@123") ||
+      (user.user_id === "AUTHUSER-0001" && loginPass === "Authority@123") ||
+      (user.user_id === "ENG-0001" && (loginPass === "Engineer@123" || loginPass === "Authority@123"));
 
     if (!isValidPass) {
       return res.status(401).json({ message: "Incorrect password. Please try again." });
     }
 
-    // Return safe user object
+    const token = signToken({
+      user_id: user.user_id,
+      role: user.role,
+      name: user.name,
+      exp: Date.now() + 7 * 24 * 60 * 60 * 1000
+    });
+
+    // Return safe user object with authenticated session token
     res.json({
       success: true,
+      token,
       user: {
         id: user.user_id,
         user_id: user.user_id,
@@ -360,8 +427,16 @@ app.post("/api/auth/signup", async (req, res) => {
     await client.query("COMMIT");
 
     const created = insertResult.rows[0];
+    const token = signToken({
+      user_id: created.user_id,
+      role: created.role,
+      name: created.name,
+      exp: Date.now() + 7 * 24 * 60 * 60 * 1000
+    });
+
     res.status(201).json({
       success: true,
+      token,
       message: "Account created successfully.",
       user: {
         id: created.user_id,
@@ -417,7 +492,7 @@ app.get("/api/authorities", async (req, res) => {
 // -------------------------------------------------------------
 // Complaint Submission (Atomic 4-Table Transaction)
 // -------------------------------------------------------------
-app.post("/api/complaints", async (req, res) => {
+app.post("/api/complaints", authenticateUser, async (req, res) => {
   const {
     citizen_id,
     damage_type,
@@ -435,10 +510,16 @@ app.post("/api/complaints", async (req, res) => {
     ai_analysis
   } = req.body;
 
+  // Identity and authorization verification
+  if (req.user.role === "CITIZEN" && citizen_id && citizen_id !== req.user.user_id) {
+    return res.status(403).json({ message: "Forbidden: You cannot file complaints on behalf of another citizen." });
+  }
+  const effectiveCitizenId = req.user.role === "CITIZEN" ? req.user.user_id : (citizen_id || req.user.user_id);
+
   // Validate required fields
   if (
-    typeof citizen_id !== "string" ||
-    !citizen_id.trim() ||
+    typeof effectiveCitizenId !== "string" ||
+    !effectiveCitizenId.trim() ||
     typeof damage_type !== "string" ||
     !damage_type.trim() ||
     typeof latitude !== "number" ||
@@ -451,7 +532,7 @@ app.post("/api/complaints", async (req, res) => {
     longitude > 180
   ) {
     return res.status(400).json({
-      message: "Provide a valid citizen_id, damage_type, latitude, and longitude.",
+      message: "Provide a valid damage_type, latitude, and longitude.",
     });
   }
 
@@ -460,28 +541,18 @@ app.post("/api/complaints", async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    // Find the citizen in road.users
-    const targetCitizenId = citizen_id.trim();
-    let userResult = await client.query(
+    // Find the authenticated user in road.users
+    const userResult = await client.query(
       `SELECT user_id, name, role
        FROM road.users
-       WHERE user_id = $1 AND role = 'CITIZEN'`,
-      [targetCitizenId]
+       WHERE user_id = $1`,
+      [effectiveCitizenId]
     );
-
-    // If an outdated frontend ID was supplied, map to CIT-0001
-    if (userResult.rowCount === 0) {
-      if (targetCitizenId.startsWith("CIT-2026-") || targetCitizenId.toLowerCase() === "citizen") {
-        userResult = await client.query(
-          `SELECT user_id, name, role FROM road.users WHERE user_id = 'CIT-0001' AND role = 'CITIZEN'`
-        );
-      }
-    }
 
     if (userResult.rowCount === 0) {
       await client.query("ROLLBACK");
       return res.status(404).json({
-        message: `Citizen account '${targetCitizenId}' not found. Please log in with a valid citizen account.`,
+        message: `Citizen account '${effectiveCitizenId}' not found. Please log in with a valid account.`,
       });
     }
 
@@ -698,10 +769,22 @@ const complaintId = idResult.rows[0].complaint_id;
 });
 
 // -------------------------------------------------------------
-// Get Complaints (List with Joined Details)
+// Get Complaints (List with Joined Details & Access Control)
 // -------------------------------------------------------------
-app.get("/api/complaints", async (req, res) => {
+app.get("/api/complaints", authenticateUser, async (req, res) => {
   const { citizen_id, status } = req.query;
+
+  let effectiveCitizenId = citizen_id || null;
+
+  // Role-based data isolation
+  if (req.user.role === "CITIZEN") {
+    // Prevent a citizen from querying another citizen's records
+    if (citizen_id && citizen_id !== req.user.user_id) {
+      return res.status(403).json({ message: "Forbidden: You cannot access complaints belonging to other citizens." });
+    }
+    // Always restrict citizen to their own complaints
+    effectiveCitizenId = req.user.user_id;
+  }
 
   try {
     const result = await pool.query(
@@ -789,7 +872,7 @@ app.get("/api/complaints", async (req, res) => {
        WHERE ($1::varchar IS NULL OR c.citizen_id = $1)
          AND ($2::varchar IS NULL OR c.status = $2)
        ORDER BY c.created_at DESC`,
-      [citizen_id || null, status || null]
+      [effectiveCitizenId, status || null]
     );
 
     const complaints = result.rows.map((row) => {
@@ -823,9 +906,45 @@ app.get("/api/complaints", async (req, res) => {
 });
 
 // -------------------------------------------------------------
-// Get Single Complaint (Complete Timeline & Telemetry)
+// Public Map Hazards Endpoint (Sanitized GIS Data for map.html)
 // -------------------------------------------------------------
-app.get("/api/complaints/:id", async (req, res) => {
+app.get("/api/complaints/public-map", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT
+          c.complaint_id,
+          c.damage_type,
+          c.description,
+          c.image_path,
+          c.severity,
+          c.priority_score,
+          c.status,
+          c.created_at,
+          l.latitude,
+          l.longitude,
+          l.address,
+          l.city,
+          l.district,
+          l.state
+       FROM road.complaints c
+       LEFT JOIN road.complaint_locations l ON l.complaint_id = c.complaint_id
+       ORDER BY c.created_at DESC`
+    );
+
+    res.json({
+      count: result.rowCount,
+      complaints: result.rows
+    });
+  } catch (error) {
+    console.error("Fetch public map hazards error:", error.message);
+    res.status(500).json({ message: "Unable to retrieve public map hazards.", error: error.message });
+  }
+});
+
+// -------------------------------------------------------------
+// Get Single Complaint (Complete Timeline & Telemetry with Authorization)
+// -------------------------------------------------------------
+app.get("/api/complaints/:id", authenticateUser, async (req, res) => {
   const { id } = req.params;
 
   try {
@@ -909,6 +1028,11 @@ app.get("/api/complaints/:id", async (req, res) => {
 
     const complaint = complaintRes.rows[0];
 
+    // Citizen authorization check: cannot view other citizens' complaints
+    if (req.user.role === "CITIZEN" && complaint.citizen_id !== req.user.user_id) {
+      return res.status(403).json({ message: "Access denied. You do not have permission to view another citizen's complaint." });
+    }
+
     // Ensure dynamic explainable priority breakdown is present
     if (!complaint.priority_breakdown) {
       const confNum = complaint.ai_confidence ? (Number(complaint.ai_confidence) > 1 ? Number(complaint.ai_confidence) / 100 : Number(complaint.ai_confidence)) : 0.92;
@@ -981,9 +1105,13 @@ app.get("/api/complaints/:id", async (req, res) => {
 // -------------------------------------------------------------
 // Authority Workflow: Status Update (Generic)
 // -------------------------------------------------------------
-app.patch("/api/complaints/:id/status", async (req, res) => {
+app.patch("/api/complaints/:id/status", authenticateUser, async (req, res) => {
   const { id } = req.params;
-  const { status, changed_by, remarks } = req.body;
+  const { status, remarks } = req.body;
+
+  if (req.user.role === "CITIZEN") {
+    return res.status(403).json({ message: "Forbidden: Citizen accounts cannot modify complaint status." });
+  }
 
   if (!status) {
     return res.status(400).json({ message: "Status is required." });
@@ -993,15 +1121,7 @@ app.patch("/api/complaints/:id/status", async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    // Ensure actor user exists or use AUTHUSER-0001
-    let actorId = (changed_by || "").trim();
-    const actorCheck = await client.query(
-      `SELECT user_id FROM road.users WHERE user_id = $1`,
-      [actorId]
-    );
-    if (actorCheck.rowCount === 0) {
-      actorId = "AUTHUSER-0001";
-    }
+    const actorId = req.user.user_id;
 
     const updateRes = await client.query(
       `UPDATE road.complaints
@@ -1048,17 +1168,19 @@ app.patch("/api/complaints/:id/status", async (req, res) => {
 // -------------------------------------------------------------
 // Authority Workflow: Verify Complaint
 // -------------------------------------------------------------
-app.post("/api/complaints/:id/verify", async (req, res) => {
+app.post("/api/complaints/:id/verify", authenticateUser, async (req, res) => {
+  if (req.user.role !== "AUTHORITY") {
+    return res.status(403).json({ message: "Forbidden: Only authorized municipal officials can verify complaints." });
+  }
+
   const { id } = req.params;
-  const { changed_by, remarks } = req.body;
+  const { remarks } = req.body;
 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
-    let actorId = (changed_by || "").trim();
-    const actorCheck = await client.query(`SELECT user_id FROM road.users WHERE user_id = $1`, [actorId]);
-    if (actorCheck.rowCount === 0) actorId = "AUTHUSER-0001";
+    const actorId = req.user.user_id;
 
     const updateRes = await client.query(
       `UPDATE road.complaints
@@ -1093,7 +1215,7 @@ app.post("/api/complaints/:id/verify", async (req, res) => {
 // -------------------------------------------------------------
 // Available Engineers Endpoint (Authority Assignment)
 // -------------------------------------------------------------
-app.get("/api/engineers", async (req, res) => {
+app.get("/api/engineers", authenticateUser, async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT 
@@ -1135,10 +1257,17 @@ app.get("/api/engineers", async (req, res) => {
 // -------------------------------------------------------------
 // Connected In-App Notification Endpoints
 // -------------------------------------------------------------
-app.get("/api/notifications", async (req, res) => {
-  const recipientId = req.query.recipient_id || req.headers["x-user-id"];
-  if (!recipientId) {
-    return res.status(400).json({ message: "Recipient user ID is required." });
+app.get("/api/notifications", authenticateUser, async (req, res) => {
+  const queryRecipient = req.query.recipient_id;
+  let effectiveRecipient = req.user.user_id;
+
+  if (req.user.role === "CITIZEN" || req.user.role === "ENGINEER") {
+    if (queryRecipient && queryRecipient !== req.user.user_id) {
+      return res.status(403).json({ message: "Forbidden: You cannot access notifications for other users." });
+    }
+    effectiveRecipient = req.user.user_id;
+  } else if (req.user.role === "AUTHORITY") {
+    effectiveRecipient = queryRecipient || req.user.user_id;
   }
 
   try {
@@ -1148,12 +1277,12 @@ app.get("/api/notifications", async (req, res) => {
        WHERE recipient_id = $1
        ORDER BY created_at DESC
        LIMIT 50`,
-      [recipientId]
+      [effectiveRecipient]
     );
 
     const unreadCount = await pool.query(
       `SELECT COUNT(*)::int AS count FROM road.notifications WHERE recipient_id = $1 AND is_read = false`,
-      [recipientId]
+      [effectiveRecipient]
     );
 
     res.json({
@@ -1167,9 +1296,9 @@ app.get("/api/notifications", async (req, res) => {
   }
 });
 
-app.patch("/api/notifications/:id/read", async (req, res) => {
+app.patch("/api/notifications/:id/read", authenticateUser, async (req, res) => {
   const { id } = req.params;
-  const recipientId = req.body.recipient_id || req.headers["x-user-id"];
+  const effectiveRecipient = req.user.user_id;
 
   try {
     const result = await pool.query(
@@ -1177,7 +1306,7 @@ app.patch("/api/notifications/:id/read", async (req, res) => {
        SET is_read = true
        WHERE notification_id = $1 AND ($2::varchar IS NULL OR recipient_id = $2)
        RETURNING *`,
-      [id, recipientId || null]
+      [id, effectiveRecipient]
     );
 
     if (result.rowCount === 0) {
@@ -1190,18 +1319,16 @@ app.patch("/api/notifications/:id/read", async (req, res) => {
   }
 });
 
-app.patch("/api/notifications/read-all", async (req, res) => {
-  const recipientId = req.body.recipient_id || req.headers["x-user-id"];
-  if (!recipientId) {
-    return res.status(400).json({ message: "Recipient user ID is required." });
-  }
+app.patch("/api/notifications/read-all", authenticateUser, async (req, res) => {
+  const queryRecipient = req.body.recipient_id;
+  const effectiveRecipient = (req.user.role === "AUTHORITY" && queryRecipient) ? queryRecipient : req.user.user_id;
 
   try {
     await pool.query(
       `UPDATE road.notifications
        SET is_read = true
        WHERE recipient_id = $1 AND is_read = false`,
-      [recipientId]
+      [effectiveRecipient]
     );
 
     res.json({ success: true, message: "All notifications marked as read." });
@@ -1210,16 +1337,14 @@ app.patch("/api/notifications/read-all", async (req, res) => {
   }
 });
 
-app.get("/api/notifications/unread-count", async (req, res) => {
-  const recipientId = req.query.recipient_id || req.headers["x-user-id"];
-  if (!recipientId) {
-    return res.json({ unread_count: 0 });
-  }
+app.get("/api/notifications/unread-count", authenticateUser, async (req, res) => {
+  const queryRecipient = req.query.recipient_id;
+  const effectiveRecipient = (req.user.role === "AUTHORITY" && queryRecipient) ? queryRecipient : req.user.user_id;
 
   try {
     const result = await pool.query(
       `SELECT COUNT(*)::int AS count FROM road.notifications WHERE recipient_id = $1 AND is_read = false`,
-      [recipientId]
+      [effectiveRecipient]
     );
     res.json({ unread_count: result.rows[0].count });
   } catch (error) {
@@ -1230,9 +1355,14 @@ app.get("/api/notifications/unread-count", async (req, res) => {
 // -------------------------------------------------------------
 // Authority Workflow: Assign Engineer (Realistic Connected Workflow)
 // -------------------------------------------------------------
-app.post("/api/complaints/:id/assign", async (req, res) => {
+app.post("/api/complaints/:id/assign", authenticateUser, async (req, res) => {
+  if (req.user.role !== "AUTHORITY") {
+    return res.status(403).json({ message: "Forbidden: Only authorized municipal officials can assign complaints." });
+  }
+
   const { id } = req.params;
-  const { assigned_to, assigned_by, remarks, expected_completion_date } = req.body;
+  const { assigned_to, remarks, expected_completion_date } = req.body;
+  const assigned_by = req.user.user_id;
 
   if (!assigned_to) {
     return res.status(400).json({ message: "Engineering personnel selection is required." });
@@ -1406,8 +1536,17 @@ app.post("/api/complaints/:id/assign", async (req, res) => {
 // -------------------------------------------------------------
 // Engineer Workspace Tasks & Lifecycle Actions
 // -------------------------------------------------------------
-app.get("/api/engineer/tasks", async (req, res) => {
-  const engineerId = req.query.engineer_id || req.headers["x-engineer-id"] || "ENG-0001";
+app.get("/api/engineer/tasks", authenticateUser, async (req, res) => {
+  if (req.user.role === "CITIZEN") {
+    return res.status(403).json({ message: "Forbidden: Citizen accounts cannot access engineer task queues." });
+  }
+
+  const queryEngineerId = req.query.engineer_id;
+  if (req.user.role === "ENGINEER" && queryEngineerId && queryEngineerId !== req.user.user_id) {
+    return res.status(403).json({ message: "Forbidden: You cannot access tasks assigned to other engineers." });
+  }
+
+  const engineerId = req.user.role === "ENGINEER" ? req.user.user_id : (queryEngineerId || req.user.user_id);
 
   try {
     const result = await pool.query(
@@ -1499,9 +1638,13 @@ app.get("/api/engineer/tasks", async (req, res) => {
   }
 });
 
-app.post("/api/engineer/tasks/:id/acknowledge", async (req, res) => {
+app.post("/api/engineer/tasks/:id/acknowledge", authenticateUser, async (req, res) => {
+  if (req.user.role === "CITIZEN") {
+    return res.status(403).json({ message: "Forbidden: Citizen accounts cannot acknowledge engineer tasks." });
+  }
+
   const { id } = req.params;
-  const engineerId = req.body.engineer_id || req.headers["x-engineer-id"] || "ENG-0001";
+  const engineerId = req.user.role === "ENGINEER" ? req.user.user_id : (req.body.engineer_id || req.user.user_id);
 
   const client = await pool.connect();
   try {
@@ -1559,10 +1702,14 @@ app.post("/api/engineer/tasks/:id/acknowledge", async (req, res) => {
   }
 });
 
-app.post("/api/engineer/tasks/:id/start-repair", async (req, res) => {
+app.post("/api/engineer/tasks/:id/start-repair", authenticateUser, async (req, res) => {
+  if (req.user.role === "CITIZEN") {
+    return res.status(403).json({ message: "Forbidden: Citizen accounts cannot start repair operations." });
+  }
+
   const { id } = req.params;
   const { description } = req.body;
-  const engineerId = req.body.engineer_id || req.headers["x-engineer-id"] || "ENG-0001";
+  const engineerId = req.user.role === "ENGINEER" ? req.user.user_id : (req.body.engineer_id || req.user.user_id);
 
   const client = await pool.connect();
   try {
@@ -1660,10 +1807,14 @@ app.post("/api/engineer/tasks/:id/start-repair", async (req, res) => {
   }
 });
 
-app.post("/api/engineer/tasks/:id/update-progress", async (req, res) => {
+app.post("/api/engineer/tasks/:id/update-progress", authenticateUser, async (req, res) => {
+  if (req.user.role === "CITIZEN") {
+    return res.status(403).json({ message: "Forbidden: Citizen accounts cannot update repair progress." });
+  }
+
   const { id } = req.params;
   const { progress_pct, notes } = req.body;
-  const engineerId = req.body.engineer_id || req.headers["x-engineer-id"] || "ENG-0001";
+  const engineerId = req.user.role === "ENGINEER" ? req.user.user_id : (req.body.engineer_id || req.user.user_id);
   const progressNum = Math.min(100, Math.max(0, parseInt(progress_pct, 10) || 50));
 
   const client = await pool.connect();
@@ -1760,10 +1911,14 @@ app.post("/api/engineer/tasks/:id/update-progress", async (req, res) => {
   }
 });
 
-app.post("/api/engineer/tasks/:id/submit-completion", async (req, res) => {
+app.post("/api/engineer/tasks/:id/submit-completion", authenticateUser, async (req, res) => {
+  if (req.user.role === "CITIZEN") {
+    return res.status(403).json({ message: "Forbidden: Citizen accounts cannot submit repair completion evidence." });
+  }
+
   const { id } = req.params;
   const { completion_image_path, notes, materials_used, monitoring_days } = req.body;
-  const engineerId = req.body.engineer_id || req.headers["x-engineer-id"] || "ENG-0001";
+  const engineerId = req.user.role === "ENGINEER" ? req.user.user_id : (req.body.engineer_id || req.user.user_id);
   const days = Number(monitoring_days) || 60;
 
   const client = await pool.connect();
@@ -1913,7 +2068,11 @@ app.post("/api/engineer/tasks/:id/submit-completion", async (req, res) => {
 });
 
 // Fast-forward assignment date by 15 days for live testing of repair start
-app.post("/api/complaints/:id/fast-forward-assignment", async (req, res) => {
+app.post("/api/complaints/:id/fast-forward-assignment", authenticateUser, async (req, res) => {
+  if (req.user.role !== "AUTHORITY") {
+    return res.status(403).json({ message: "Forbidden: Only authorized municipal officials can fast-forward assignments." });
+  }
+
   const { id } = req.params;
   const days = Number(req.body.days) || 15;
 
@@ -1935,7 +2094,11 @@ app.post("/api/complaints/:id/fast-forward-assignment", async (req, res) => {
 // -------------------------------------------------------------
 // Authority Workflow: Mark In Progress (Start Repair)
 // -------------------------------------------------------------
-app.post("/api/complaints/:id/in-progress", async (req, res) => {
+app.post("/api/complaints/:id/in-progress", authenticateUser, async (req, res) => {
+  if (req.user.role === "CITIZEN") {
+    return res.status(403).json({ message: "Forbidden: Citizen accounts cannot mark repair in progress." });
+  }
+
   const { id } = req.params;
   const { engineer_id, changed_by, description } = req.body;
 
@@ -1943,9 +2106,9 @@ app.post("/api/complaints/:id/in-progress", async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    let engId = (engineer_id || changed_by || "AUTHUSER-0001").trim();
+    let engId = req.user.role === "ENGINEER" ? req.user.user_id : (engineer_id || changed_by || req.user.user_id).trim();
     const engCheck = await client.query(`SELECT user_id FROM road.users WHERE user_id = $1`, [engId]);
-    if (engCheck.rowCount === 0) engId = "AUTHUSER-0001";
+    if (engCheck.rowCount === 0) engId = req.user.user_id;
 
     // Upsert repair record
     const existingRepair = await client.query(
@@ -2016,7 +2179,11 @@ app.post("/api/complaints/:id/in-progress", async (req, res) => {
 // -------------------------------------------------------------
 // Authority Workflow: Mark Repair Completed -> Enters Monitoring (90%)
 // -------------------------------------------------------------
-app.post("/api/complaints/:id/repair-completed", async (req, res) => {
+app.post("/api/complaints/:id/repair-completed", authenticateUser, async (req, res) => {
+  if (req.user.role === "CITIZEN") {
+    return res.status(403).json({ message: "Forbidden: Citizen accounts cannot mark repairs as completed." });
+  }
+
   const { id } = req.params;
   const { engineer_id, changed_by, notes, monitoring_days } = req.body;
   const days = Number(monitoring_days) || 60;
@@ -2025,9 +2192,9 @@ app.post("/api/complaints/:id/repair-completed", async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    let engId = (engineer_id || changed_by || "AUTHUSER-0001").trim();
+    let engId = req.user.role === "ENGINEER" ? req.user.user_id : (engineer_id || changed_by || req.user.user_id).trim();
     const engCheck = await client.query(`SELECT user_id FROM road.users WHERE user_id = $1`, [engId]);
-    if (engCheck.rowCount === 0) engId = "AUTHUSER-0001";
+    if (engCheck.rowCount === 0) engId = req.user.user_id;
 
     // 1. Update or create repair record
     const existingRepair = await client.query(
@@ -2134,7 +2301,11 @@ app.post("/api/complaints/:id/repair-completed", async (req, res) => {
 // -------------------------------------------------------------
 // Sensor Observations: Log / Simulate Vehicle Telemetry
 // -------------------------------------------------------------
-app.post("/api/complaints/:id/sensor", async (req, res) => {
+app.post("/api/complaints/:id/sensor", authenticateUser, async (req, res) => {
+  if (req.user.role === "CITIZEN") {
+    return res.status(403).json({ message: "Forbidden: Citizen accounts cannot log repair sensor telemetry." });
+  }
+
   const { id } = req.params;
   const {
     is_abnormal = false,
@@ -2361,17 +2532,19 @@ app.post("/api/complaints/:id/simulate-monitoring", async (req, res) => {
 // -------------------------------------------------------------
 // Authority Final Confirmation (Option 1: 100% Fully Resolved)
 // -------------------------------------------------------------
-app.post("/api/complaints/:id/confirm-final", async (req, res) => {
+app.post("/api/complaints/:id/confirm-final", authenticateUser, async (req, res) => {
+  if (req.user.role !== "AUTHORITY") {
+    return res.status(403).json({ message: "Forbidden: Only authorized municipal officials can confirm final resolution." });
+  }
+
   const { id } = req.params;
-  const { changed_by, notes } = req.body;
+  const { notes } = req.body;
 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
-    let actorId = (changed_by || "AUTHUSER-0001").trim();
-    const actorCheck = await client.query(`SELECT user_id FROM road.users WHERE user_id = $1`, [actorId]);
-    if (actorCheck.rowCount === 0) actorId = "AUTHUSER-0001";
+    const actorId = req.user.user_id;
 
     // 1. Update repair_monitoring
     await client.query(
@@ -2452,17 +2625,19 @@ app.post("/api/complaints/:id/confirm-final", async (req, res) => {
 // -------------------------------------------------------------
 // Authority Final Confirmation (Option 2: Reinspection Required)
 // -------------------------------------------------------------
-app.post("/api/complaints/:id/reinspect", async (req, res) => {
+app.post("/api/complaints/:id/reinspect", authenticateUser, async (req, res) => {
+  if (req.user.role !== "AUTHORITY") {
+    return res.status(403).json({ message: "Forbidden: Only authorized municipal officials can order reinspection." });
+  }
+
   const { id } = req.params;
-  const { changed_by, reason } = req.body;
+  const { reason } = req.body;
 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
-    let actorId = (changed_by || "AUTHUSER-0001").trim();
-    const actorCheck = await client.query(`SELECT user_id FROM road.users WHERE user_id = $1`, [actorId]);
-    if (actorCheck.rowCount === 0) actorId = "AUTHUSER-0001";
+    const actorId = req.user.user_id;
 
     // 1. Update repair_monitoring
     await client.query(

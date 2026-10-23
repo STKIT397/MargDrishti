@@ -37,14 +37,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   initCitizenProfile();
 
   // Initialize In-App Notification System
-  const citizenId = activeCitizenSession?.user?.citizenId || activeCitizenSession?.user?.id || 'CIT-0001';
+  const citizenId = activeCitizenSession?.user?.citizenId || activeCitizenSession?.user?.id;
   citizenNotifications = new NotificationUI({
     containerId: 'citizenNotificationBellContainer',
     recipientId: citizenId,
     onSelectComplaint: (cid) => openTrackingModal(cid)
   });
 
-  await MargDrishtiStore.fetchFromBackend();
+  await MargDrishtiStore.fetchFromBackend(citizenId);
   initKPIs();
   initMyReports();
   initWizardEvents();
@@ -94,10 +94,10 @@ function initCitizenProfile() {
   const idEl = document.getElementById('citizenDisplayId');
 
   const user = activeCitizenSession.user;
-  if (nameEl) nameEl.textContent = user.name || 'Aishwarya Patil';
-  if (emailEl) emailEl.textContent = user.email || 'aishwarya@test.com';
-  if (dotEl) dotEl.textContent = (user.name || 'A').charAt(0).toUpperCase();
-  if (idEl) idEl.textContent = user.citizenId || user.id || 'CIT-0001';
+  if (nameEl) nameEl.textContent = user.name || 'Citizen';
+  if (emailEl) emailEl.textContent = user.email || '';
+  if (dotEl) dotEl.textContent = (user.name || 'C').charAt(0).toUpperCase();
+  if (idEl) idEl.textContent = user.citizenId || user.id || '';
 }
 
 window.citizenLogout = function() {
@@ -106,11 +106,11 @@ window.citizenLogout = function() {
 
 /* ================= 1. KPI Metrics ================= */
 function initKPIs() {
-  const curCitizenId = activeCitizenSession?.user?.citizenId || activeCitizenSession?.user?.id || 'CIT-0001';
+  const curCitizenId = activeCitizenSession?.user?.citizenId || activeCitizenSession?.user?.id;
   const allComplaints = MargDrishtiStore.getAllComplaints();
   const complaints = curCitizenId 
     ? allComplaints.filter(c => c.citizenId === curCitizenId)
-    : allComplaints;
+    : [];
 
   const totalEl = document.getElementById('kpiTotalReports');
   const pendingEl = document.getElementById('kpiPending');
@@ -132,11 +132,11 @@ function initMyReports() {
   const tbody = document.getElementById('myReportsTbody');
   if (!tbody) return;
 
-  const curCitizenId = activeCitizenSession?.user?.citizenId;
+  const curCitizenId = activeCitizenSession?.user?.citizenId || activeCitizenSession?.user?.id;
   const allComplaints = MargDrishtiStore.getAllComplaints();
   const complaints = curCitizenId 
     ? allComplaints.filter(c => c.citizenId === curCitizenId)
-    : allComplaints;
+    : [];
 
   if (complaints.length === 0) {
     tbody.innerHTML = `
@@ -948,7 +948,10 @@ async function submitComplaint() {
       document.getElementById("inputHazardDescription")?.value?.trim() ||
       "Road defect reported via citizen dashboard.";
 
-    const citizenId = activeCitizenSession?.user?.citizenId || activeCitizenSession?.user?.id || 'CIT-0001';
+    const citizenId = activeCitizenSession?.user?.citizenId || activeCitizenSession?.user?.id;
+    if (!citizenId) {
+      throw new Error("You must be logged in as a citizen to submit a report.");
+    }
     console.log("Current citizen session:", activeCitizenSession);
     console.log("Citizen ID being submitted:", citizenId);
 
@@ -1086,12 +1089,21 @@ window.openTrackingModal = async function(complaintId) {
   const modal = document.getElementById('trackingModal');
   if (!modal) return;
 
+  const currentCitizenId = activeCitizenSession?.user?.citizenId || activeCitizenSession?.user?.id;
   let complaint = MargDrishtiStore.getComplaintById(complaintId);
+  if (complaint && currentCitizenId && complaint.citizenId && complaint.citizenId !== currentCitizenId) {
+    alert("Access Denied: You are not authorized to view another citizen's complaint.");
+    return;
+  }
 
   // Fetch complete live lifecycle timeline and sensor telemetry from PostgreSQL
   try {
     const live = await fetchComplaintById(complaintId);
     if (live && live.complaint) {
+      if (currentCitizenId && live.complaint.citizen_id && live.complaint.citizen_id !== currentCitizenId) {
+        alert("Access Denied: You are not authorized to view this complaint.");
+        return;
+      }
       complaint = MargDrishtiStore.mapDbComplaintToStore(live.complaint);
       if (live.timeline && live.timeline.length > 0) {
         complaint.timeline = live.timeline.map(t => ({
@@ -1108,10 +1120,14 @@ window.openTrackingModal = async function(complaintId) {
     }
   } catch (err) {
     console.warn('Live tracking query notice:', err.message);
+    if (err.message && (err.message.includes('403') || err.message.includes('Forbidden') || err.message.includes('unauthorized') || err.message.includes('Unauthorized'))) {
+      alert("Access Denied: You cannot access complaints belonging to another user.");
+      return;
+    }
   }
 
   if (!complaint) {
-    alert(`Complaint ${complaintId} not found.`);
+    alert(`Complaint ${complaintId} not found or access denied.`);
     return;
   }
 
@@ -1213,7 +1229,7 @@ function renderTrackingModalContent(c) {
         </div>
         <span class="badge font-mono ${prioScore >= 80 ? 'badge-priority-critical' : prioScore >= 60 ? 'badge-priority-high' : 'badge-priority-medium'}">${prioScore}/100 ${prioLevel}</span>
       </div>
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; font-size: 0.78rem;">
+      <div class="priority-breakdown-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; font-size: 0.78rem;">
         <div class="factor-bar-row">
           <div class="factor-bar-labels"><span>1. Damage Severity (30%)</span><span class="font-mono">${sevWeighted}/30 (${sevScore}/100)</span></div>
           <div class="factor-bar-track"><div class="factor-bar-fill" style="width: ${(sevWeighted / 30) * 100}%;"></div></div>
@@ -1363,7 +1379,7 @@ function renderTrackingModalContent(c) {
           ${cardBadge}
         </div>
         <div class="card-body">
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+          <div class="monitoring-cycle-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
             <div>
               <div class="text-xs text-muted" style="margin-bottom: 4px;">Observation Cycle Progress</div>
               <div class="monitoring-day-meter" style="font-size: 0.9rem;">
@@ -1418,7 +1434,7 @@ function renderTrackingModalContent(c) {
           </span>
         </div>
         <div class="card-body">
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+          <div class="repair-proof-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
             <div>
               <div style="font-size: 0.72rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px;">
                 Initial Damage Evidence

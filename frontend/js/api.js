@@ -2,12 +2,32 @@ const API_BASE_URL = "http://localhost:5000/api";
 
 export async function apiRequest(endpoint, options = {}) {
   const url = `${API_BASE_URL}${endpoint}`;
+
+  // Attach active authenticated session token if available
+  let token = null;
+  try {
+    const rawAuth = localStorage.getItem("margdrishti_auth");
+    if (rawAuth) {
+      const parsed = JSON.parse(rawAuth);
+      token = parsed?.token;
+    }
+    if (!token) {
+      token = localStorage.getItem("margdrishti_token");
+    }
+  } catch (_) {}
+
+  const headers = {
+    "Content-Type": "application/json",
+    ...options.headers,
+  };
+
+  if (token && !headers["Authorization"]) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
   const response = await fetch(url, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
+    headers,
   });
 
   const text = await response.text();
@@ -19,6 +39,15 @@ export async function apiRequest(endpoint, options = {}) {
   }
 
   if (!response.ok) {
+    if (response.status === 401 && !endpoint.startsWith("/auth/")) {
+      console.warn("API request rejected with 401 Unauthorized for endpoint:", endpoint);
+      // If unauthorized on a protected page, safely redirect to login
+      if (typeof window !== "undefined" && !window.location.pathname.endsWith("index.html") && !window.location.pathname.endsWith("map.html")) {
+        localStorage.removeItem("margdrishti_auth");
+        localStorage.removeItem("margdrishti_token");
+        window.location.replace("index.html?unauthorized=true");
+      }
+    }
     throw new Error(data.message || data.error || `Request failed with HTTP ${response.status}`);
   }
 
@@ -45,6 +74,10 @@ export async function fetchComplaints(citizenId = null, status = null) {
   if (status) params.append("status", status);
   const q = params.toString() ? `?${params.toString()}` : "";
   return apiRequest(`/complaints${q}`);
+}
+
+export async function fetchPublicMapHazards() {
+  return apiRequest("/complaints/public-map");
 }
 
 export async function fetchComplaintById(id) {

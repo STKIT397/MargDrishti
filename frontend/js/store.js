@@ -9,6 +9,7 @@ import { PriorityEngine } from './priorityEngine.js';
 import {
   fetchComplaints,
   fetchComplaintById,
+  fetchPublicMapHazards,
   verifyComplaintApi,
   assignComplaintApi,
   fastForwardAssignmentApi,
@@ -51,8 +52,14 @@ class MargDrishtiStoreManager {
   init() {
     const existing = localStorage.getItem(STORAGE_KEY);
     if (!existing) {
-      this.resetDatabase();
+      this.inMemoryComplaints = [];
     }
+  }
+
+  clearLocalCache() {
+    this.inMemoryComplaints = [];
+    localStorage.removeItem(STORAGE_KEY);
+    this.dispatchChangeEvent();
   }
 
   getMonitoringDays() {
@@ -73,13 +80,41 @@ class MargDrishtiStoreManager {
 
   /**
    * Syncs with PostgreSQL Express backend and maps records into frontend store
+   * Enforces role isolation (citizens fetch only their records; public map fetches sanitized hazards)
    */
-  async fetchFromBackend() {
+  async fetchFromBackend(targetCitizenId = null) {
     if (this.isFetching) return this.getAllComplaints();
     this.isFetching = true;
 
     try {
-      const res = await fetchComplaints();
+      let activeCitizenId = targetCitizenId;
+      let userRole = null;
+      let token = null;
+
+      try {
+        const rawAuth = localStorage.getItem('margdrishti_auth');
+        if (rawAuth) {
+          const session = JSON.parse(rawAuth);
+          userRole = session?.role;
+          token = session?.token;
+          if (userRole === 'citizen') {
+            activeCitizenId = session?.user?.user_id || session?.user?.citizenId;
+          }
+        }
+        if (!token) {
+          token = localStorage.getItem('margdrishti_token');
+        }
+      } catch (_) {}
+
+      let res = null;
+      if (token) {
+        // Authenticated request
+        res = await fetchComplaints(userRole === 'citizen' ? activeCitizenId : null);
+      } else {
+        // Unauthenticated visitor (e.g. on public map or landing)
+        res = await fetchPublicMapHazards().catch(() => ({ complaints: [] }));
+      }
+
       if (res && Array.isArray(res.complaints)) {
         const mappedList = res.complaints.map(c => this.mapDbComplaintToStore(c));
         this.inMemoryComplaints = mappedList;
@@ -122,9 +157,9 @@ class MargDrishtiStoreManager {
 
     return {
       complaintId: c.complaint_id,
-      citizenId: c.citizen_id || 'CIT-0001',
-      citizenName: c.citizen_name || 'Aishwarya Patil',
-      citizenPhone: c.citizen_phone || '9876543210',
+      citizenId: c.citizen_id || '',
+      citizenName: c.citizen_name || 'Citizen',
+      citizenPhone: c.citizen_phone || '',
       description: c.description || 'Road damage reported via MargDrishti portal.',
       mediaType: isVideo ? 'video' : 'image',
       mediaUrl: c.image_path || sampleImg,
@@ -280,9 +315,9 @@ class MargDrishtiStoreManager {
 
     const newRecord = {
       complaintId,
-      citizenId: data.citizenId || 'CIT-0001',
-      citizenName: data.citizenName || 'Aishwarya Patil',
-      citizenPhone: data.citizenPhone || '9876543210',
+      citizenId: data.citizenId || '',
+      citizenName: data.citizenName || 'Citizen',
+      citizenPhone: data.citizenPhone || '',
       description: data.description || 'Road damage reported via MargDrishti portal.',
       mediaType: data.mediaType || 'image',
       mediaUrl: data.mediaUrl || SAMPLE_ROAD_IMAGES.pothole_severe,

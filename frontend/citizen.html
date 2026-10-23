@@ -357,7 +357,7 @@
 
         <!-- STEP 2 PANE: LOCATION INTELLIGENCE -->
         <div id="wizardPaneStep2" class="wizard-pane hidden">
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
             <div>
               <h3 style="font-size: 1rem; font-weight: 700;">Location & Geolocation Intelligence</h3>
               <p class="text-xs text-muted">Capture current GPS coordinates or use the verified smart city demo location.</p>
@@ -509,7 +509,7 @@
 
             <div class="form-group">
               <label class="form-label">Nearby Sensitive Infrastructure (Select all that apply)</label>
-              <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; font-size: 0.8rem;">
+              <div class="sensitive-infra-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; font-size: 0.8rem;">
                 <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
                   <input type="checkbox" id="chkSchool" checked /> 🏫 School / College Zone
                 </label>
@@ -571,7 +571,7 @@
 
           <!-- AI RESULT CARD (SHOWN AFTER SCAN) -->
           <div id="aiResultCard" class="hidden" style="margin-top: 1.25rem;">
-            <div style="display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 1.25rem;">
+            <div class="ai-result-grid" style="display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 1.25rem;">
               
               <!-- Evidence Display (Canvas or Video) -->
               <div>

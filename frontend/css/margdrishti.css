@@ -2098,5 +2098,256 @@ body:has(#mainGisMap) .ai-chat-widget-root {
   }
 }
 
+/* ==========================================================================
+   MOBILE & TABLET RESPONSIVENESS SYSTEM (320px - 1024px)
+   Target widths: 320px, 375px, 390px, 430px, tablet, desktop
+   ========================================================================== */
+
+/* 1. Global Viewport & Horizontal Overflow Prevention */
+html, body {
+  overflow-x: hidden !important;
+  max-width: 100vw;
+  width: 100%;
+}
+
+body.map-view-body {
+  overflow: hidden;
+}
+
+/* 2. Responsive Breakpoint: Tablet & Below (<= 900px / <= 768px) */
+@media (max-width: 900px) {
+  .ai-result-grid,
+  .inspector-grid {
+    grid-template-columns: 1fr !important;
+    gap: 1rem !important;
+  }
+}
+
+@media (max-width: 768px) {
+  /* Prevent iOS auto-zoom on input focus */
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="date"],
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+
+  /* Sticky Demo Bar: horizontal swipe on mobile */
+  .demo-control-bar {
+    padding: 0.35rem 0.65rem;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+  .demo-bar-left {
+    display: none;
+  }
+  .demo-bar-center {
+    width: 100%;
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 2px;
+    gap: 0.25rem;
+  }
+  .demo-nav-link {
+    padding: 0.25rem 0.55rem;
+    font-size: 0.74rem;
+    flex-shrink: 0;
+  }
+  .demo-bar-right {
+    display: none;
+  }
+
+  /* Header & Navigation */
+  .navbar-inner {
+    padding: 0.65rem 0.85rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .brand-title-main {
+    font-size: 1.2rem;
+  }
+  .brand-subtitle-main {
+    display: none;
+  }
+  .nav-actions {
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+  .nav-actions .btn {
+    padding: 0.35rem 0.6rem;
+    font-size: 0.78rem;
+  }
+
+  /* Containers & Cards */
+  .container {
+    padding: 0 0.75rem;
+  }
+  .card-header,
+  .card-body,
+  .card-footer {
+    padding: 0.85rem;
+  }
+
+  /* Grid Layouts collapse gracefully */
+  .grid-2,
+  .grid-3,
+  .grid-4,
+  .ai-result-grid,
+  .inspector-grid,
+  .modal-form-grid,
+  .priority-breakdown-grid,
+  .monitoring-cycle-grid,
+  .repair-proof-grid,
+  .hero-feature-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Modals: fit comfortable within screen bounds */
+  .modal-backdrop {
+    padding: 0.4rem !important;
+  }
+  .modal-card,
+  .modal-card.modal-lg {
+    max-width: 100% !important;
+    width: 100% !important;
+    max-height: 94vh !important;
+    margin: 0 !important;
+    border-radius: var(--radius-md) !important;
+  }
+
+  /* Tables: clean touch horizontal scrolling */
+  .table-responsive {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    width: 100% !important;
+    border-radius: var(--radius-sm);
+  }
+  .data-table {
+    min-width: 580px;
+  }
+
+  /* Workflow Steps */
+  .pipeline-steps-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* Map Layout on tablets & mobile */
+  body.map-view-body {
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+  }
+  .map-page-layout {
+    display: flex !important;
+    flex-direction: column !important;
+    height: auto !important;
+    min-height: 100vh;
+  }
+  .map-sidebar {
+    max-height: 380px;
+    height: auto !important;
+    overflow-y: auto;
+  }
+  .map-main-canvas {
+    height: 420px !important;
+    min-height: 360px !important;
+  }
+  #mainGisMap {
+    height: 420px !important;
+    min-height: 360px !important;
+  }
+}
+
+/* 3. Responsive Breakpoint: Narrow Mobile (<= 480px down to 320px) */
+@media (max-width: 480px) {
+  /* Brand */
+  .brand-icon-box {
+    width: 32px;
+    height: 32px;
+  }
+  .brand-title-main {
+    font-size: 1.1rem;
+  }
+
+  /* Wizard Steps Header: compact badges */
+  .wizard-header-steps {
+    padding: 0.65rem 0.35rem;
+    gap: 0.2rem;
+  }
+  .wizard-step-title {
+    display: none !important;
+  }
+  .wizard-bubble {
+    width: 26px !important;
+    height: 26px !important;
+    font-size: 0.72rem !important;
+  }
+  .wizard-line {
+    margin: 0 3px !important;
+  }
+
+  /* Step 1 Evidence Preview Card */
+  #wizardMediaPreview > div {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+  }
+  #wizardPreviewImage,
+  #wizardPreviewVideo {
+    width: 100% !important;
+    height: 140px !important;
+  }
+
+  /* Step 3 Form Grids */
+  .sensitive-infra-grid {
+    grid-template-columns: 1fr !important;
+  }
+  .pipeline-steps-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Notification Dropdown: Fixed position prevents horizontal overflow on 320px - 430px */
+  .notification-dropdown {
+    position: fixed !important;
+    top: 55px !important;
+    left: 8px !important;
+    right: 8px !important;
+    width: auto !important;
+    max-width: calc(100vw - 16px) !important;
+    max-height: 78vh !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Profile Chip & Logout */
+  .btn-logout {
+    padding: 0.25rem 0.45rem !important;
+    font-size: 0.7rem !important;
+  }
+
+  /* KPI cards */
+  .kpi-grid {
+    grid-template-columns: 1fr !important;
+    gap: 0.65rem;
+  }
+  .kpi-card {
+    padding: 0.85rem;
+  }
+  .kpi-val {
+    font-size: 1.55rem !important;
+  }
+
+  /* Map View Canvas on narrow mobile */
+  .map-stats-strip {
+    gap: 0.25rem !important;
+    padding: 0 0.5rem 0.5rem 0.5rem !important;
+  }
+  .map-main-canvas, #mainGisMap {
+    height: 330px !important;
+    min-height: 300px !important;
+  }
+}
+
+
 
 

@@ -101,42 +101,13 @@ class AuthServiceManager {
       const raw = localStorage.getItem(AUTH_STORAGE_KEY);
       if (!raw) return;
       const session = JSON.parse(raw);
-      if (session && session.user) {
-        let changed = false;
-
-        // Fix legacy CIT-2026-XXXXXX IDs that fail backend foreign key checks
-        if (session.role === 'citizen') {
-          if (!session.user.citizenId || session.user.citizenId.startsWith('CIT-2026-') || session.user.id.startsWith('CIT-2026-')) {
-            session.user.id = DEMO_CREDENTIALS.citizen.id;
-            session.user.citizenId = DEMO_CREDENTIALS.citizen.id;
-            session.user.name = DEMO_CREDENTIALS.citizen.name;
-            session.user.email = DEMO_CREDENTIALS.citizen.email;
-            changed = true;
-          }
-        } else if (session.role === 'authority') {
-          if (!session.user.authorityId || session.user.authorityId.startsWith('AUT-2026-') || session.user.id.startsWith('AUT-2026-')) {
-            session.user.id = DEMO_CREDENTIALS.authority.id;
-            session.user.authorityId = DEMO_CREDENTIALS.authority.id;
-            session.user.name = DEMO_CREDENTIALS.authority.name;
-            session.user.email = DEMO_CREDENTIALS.authority.email;
-            changed = true;
-          }
-        } else if (session.role === 'engineer') {
-          if (!session.user.engineerId) {
-            session.user.id = DEMO_CREDENTIALS.engineer.id;
-            session.user.engineerId = DEMO_CREDENTIALS.engineer.id;
-            session.user.name = DEMO_CREDENTIALS.engineer.name;
-            session.user.email = DEMO_CREDENTIALS.engineer.email;
-            changed = true;
-          }
-        }
-
-        if (changed) {
-          localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
-        }
+      if (!session || !session.user || !session.isLoggedIn) {
+        localStorage.removeItem(AUTH_STORAGE_KEY);
+        localStorage.removeItem('margdrishti_token');
       }
     } catch (e) {
       console.warn('Session normalization error:', e);
+      localStorage.removeItem(AUTH_STORAGE_KEY);
     }
   }
 
@@ -214,8 +185,14 @@ class AuthServiceManager {
       const backendRes = await loginUser(role, cleanIdentifier, cleanPass);
       if (backendRes && backendRes.success && backendRes.user) {
         const dbUser = backendRes.user;
+        const authToken = backendRes.token || null;
+        if (authToken) {
+          localStorage.setItem('margdrishti_token', authToken);
+        }
+
         const sessionData = {
           isLoggedIn: true,
+          token: authToken,
           role: dbUser.role || role.toLowerCase(),
           user: {
             id: dbUser.user_id || dbUser.id,
@@ -278,10 +255,10 @@ class AuthServiceManager {
       isLoggedIn: true,
       role: user.role,
       user: {
-        id: user.id || (user.role === 'authority' ? DEMO_CREDENTIALS.authority.id : user.role === 'engineer' ? DEMO_CREDENTIALS.engineer.id : DEMO_CREDENTIALS.citizen.id),
-        citizenId: user.role === 'citizen' ? (user.citizenId || DEMO_CREDENTIALS.citizen.id) : null,
-        authorityId: user.role === 'authority' ? (user.authorityId || DEMO_CREDENTIALS.authority.id) : null,
-        engineerId: user.role === 'engineer' ? (user.engineerId || DEMO_CREDENTIALS.engineer.id) : null,
+        id: user.id || user.userId || user.user_id || null,
+        citizenId: user.role === 'citizen' ? (user.citizenId || user.id || user.userId || user.user_id || null) : null,
+        authorityId: user.role === 'authority' ? (user.authorityId || user.id || user.userId || user.user_id || null) : null,
+        engineerId: user.role === 'engineer' ? (user.engineerId || user.id || user.userId || user.user_id || null) : null,
         name: user.name,
         email: user.email,
         mobile: user.mobile,
@@ -406,33 +383,35 @@ class AuthServiceManager {
 
   logout() {
     localStorage.removeItem(AUTH_STORAGE_KEY);
+    localStorage.removeItem('margdrishti_token');
+    localStorage.removeItem('margdrishti_complaints_v3');
     window.dispatchEvent(new CustomEvent('margdrishti:auth_changed', { detail: null }));
     window.location.href = 'index.html?logged_out=true';
   }
 
+  getAuthToken() {
+    const session = this.getCurrentUser();
+    return session?.token || localStorage.getItem('margdrishti_token') || null;
+  }
+
   /**
    * Route protection guard for dashboard pages
-   * @param {string} requiredRole - 'citizen' or 'authority'
+   * Ensures unauthenticated visitors are redirected to login and never auto-logged in
+   * @param {string} requiredRole - 'citizen', 'authority', or 'engineer'
    * @param {string} redirectUrl - Where to send unauthenticated users
    */
   requireAuth(requiredRole, redirectUrl = 'index.html') {
     this.normalizeActiveSession();
-    let session = this.getCurrentUser();
+    const session = this.getCurrentUser();
 
-    // Auto-login with real official demo account if not logged in
-    if (!session || !session.isLoggedIn || session.role !== requiredRole) {
-      const demoUser = requiredRole === 'authority'
-        ? DEMO_CREDENTIALS.authority
-        : requiredRole === 'engineer'
-        ? DEMO_CREDENTIALS.engineer
-        : DEMO_CREDENTIALS.citizen;
-      session = {
-        isLoggedIn: true,
-        role: requiredRole,
-        user: { ...demoUser },
-        loginTimestamp: new Date().toISOString()
-      };
-      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+    // Enforce valid authentication, role match, and active token
+    const token = session?.token || localStorage.getItem('margdrishti_token');
+    if (!session || !session.isLoggedIn || session.role !== requiredRole || !token) {
+      localStorage.removeItem(AUTH_STORAGE_KEY);
+      localStorage.removeItem('margdrishti_token');
+      const target = redirectUrl || `index.html?login=${requiredRole}&unauthorized=true`;
+      window.location.replace(target);
+      return null;
     }
 
     return session;
