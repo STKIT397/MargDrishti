@@ -1,4 +1,15 @@
-const API_BASE_URL = "http://localhost:5000/api";
+const API_BASE_URL = (() => {
+  if (typeof window !== "undefined" && window.location) {
+    const { protocol, hostname, port } = window.location;
+    if (port === "5000") {
+      return `${protocol}//${hostname}:${port}/api`;
+    }
+    if (hostname !== "localhost" && hostname !== "127.0.0.1" && !hostname.includes("vercel.app")) {
+      return `${protocol}//${hostname}:5000/api`;
+    }
+  }
+  return "http://localhost:5000/api";
+})();
 
 export async function apiRequest(endpoint, options = {}) {
   const url = `${API_BASE_URL}${endpoint}`;
@@ -42,7 +53,7 @@ export async function apiRequest(endpoint, options = {}) {
     if (response.status === 401 && !endpoint.startsWith("/auth/")) {
       console.warn("API request rejected with 401 Unauthorized for endpoint:", endpoint);
       // If unauthorized on a protected page, safely redirect to login
-      if (typeof window !== "undefined" && !window.location.pathname.endsWith("index.html") && !window.location.pathname.endsWith("map.html")) {
+      if (typeof window !== "undefined" && !window.location.pathname.endsWith("index.html") && window.location.pathname !== "/" && !window.location.pathname.endsWith("map.html")) {
         localStorage.removeItem("margdrishti_auth");
         localStorage.removeItem("margdrishti_token");
         window.location.replace("index.html?unauthorized=true");

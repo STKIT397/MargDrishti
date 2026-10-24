@@ -140,7 +140,11 @@ class AuthServiceManager {
   getUsers() {
     try {
       const raw = localStorage.getItem(USERS_STORAGE_KEY);
-      return raw ? JSON.parse(raw) : [];
+      if (!raw) {
+        this.initUsers();
+        return JSON.parse(localStorage.getItem(USERS_STORAGE_KEY) || '[]');
+      }
+      return JSON.parse(raw);
     } catch (e) {
       console.error('Failed to parse users database', e);
       return [{ ...DEMO_CREDENTIALS.citizen }, { ...DEMO_CREDENTIALS.authority }];
@@ -217,6 +221,9 @@ class AuthServiceManager {
       }
     } catch (apiErr) {
       console.warn('Backend login attempt encountered an issue, checking local credentials:', apiErr.message);
+      if (apiErr.message && (apiErr.message.toLowerCase().includes('incorrect password') || apiErr.message.toLowerCase().includes('password is required'))) {
+        return { success: false, error: apiErr.message };
+      }
     }
 
     // 2. Offline / Local fallback against validated database demo accounts
@@ -251,21 +258,25 @@ class AuthServiceManager {
       return { success: false, error: 'Incorrect password. Please try again.' };
     }
 
+    const fallbackToken = `local_session_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+    localStorage.setItem('margdrishti_token', fallbackToken);
+
     const sessionData = {
       isLoggedIn: true,
-      role: user.role,
+      token: fallbackToken,
+      role: (user.role || role).toLowerCase(),
       user: {
         id: user.id || user.userId || user.user_id || null,
-        citizenId: user.role === 'citizen' ? (user.citizenId || user.id || user.userId || user.user_id || null) : null,
-        authorityId: user.role === 'authority' ? (user.authorityId || user.id || user.userId || user.user_id || null) : null,
-        engineerId: user.role === 'engineer' ? (user.engineerId || user.id || user.userId || user.user_id || null) : null,
+        citizenId: (user.role === 'citizen' || role === 'citizen') ? (user.citizenId || user.id || user.userId || user.user_id || null) : null,
+        authorityId: (user.role === 'authority' || role === 'authority') ? (user.authorityId || user.id || user.userId || user.user_id || null) : null,
+        engineerId: (user.role === 'engineer' || role === 'engineer') ? (user.engineerId || user.id || user.userId || user.user_id || null) : null,
         name: user.name,
         email: user.email,
         mobile: user.mobile,
-        designation: user.designation || (user.role === 'authority' ? 'Assistant Executive Engineer' : user.role === 'engineer' ? 'Assistant Executive Engineer (Demo Field Account)' : 'Verified Resident'),
-        roadType: user.roadType || (user.role === 'authority' ? 'City / Municipal Road' : ''),
-        responsibleAuthority: user.responsibleAuthority || (user.role === 'authority' ? 'Kolhapur Municipal Corporation' : ''),
-        jurisdiction: user.jurisdiction || (user.role === 'authority' ? 'Kolhapur City' : '')
+        designation: user.designation || (role === 'authority' ? 'Assistant Executive Engineer' : role === 'engineer' ? 'Assistant Executive Engineer (Demo Field Account)' : 'Verified Resident'),
+        roadType: user.roadType || (role === 'authority' ? 'City / Municipal Road' : ''),
+        responsibleAuthority: user.responsibleAuthority || (role === 'authority' ? 'Kolhapur Municipal Corporation' : ''),
+        jurisdiction: user.jurisdiction || (role === 'authority' ? 'Kolhapur City' : '')
       },
       loginTimestamp: new Date().toISOString()
     };
@@ -404,14 +415,32 @@ class AuthServiceManager {
     this.normalizeActiveSession();
     const session = this.getCurrentUser();
 
-    // Enforce valid authentication, role match, and active token
-    const token = session?.token || localStorage.getItem('margdrishti_token');
-    if (!session || !session.isLoggedIn || session.role !== requiredRole || !token) {
+    // 1. Enforce active logged-in session
+    if (!session || !session.isLoggedIn || !session.user) {
       localStorage.removeItem(AUTH_STORAGE_KEY);
       localStorage.removeItem('margdrishti_token');
       const target = redirectUrl || `index.html?login=${requiredRole}&unauthorized=true`;
       window.location.replace(target);
       return null;
+    }
+
+    // 2. Enforce role match (case-insensitive)
+    const sessionRole = (session.role || session.user?.role || '').toLowerCase();
+    const expectedRole = (requiredRole || '').toLowerCase();
+    if (sessionRole !== expectedRole) {
+      console.warn(`[Auth] Role mismatch: user has role '${sessionRole}', required '${expectedRole}'`);
+      const target = `index.html?login=${expectedRole}&unauthorized=true`;
+      window.location.replace(target);
+      return null;
+    }
+
+    // 3. Ensure token is present; generate and persist fallback token for existing local session if missing
+    let token = session.token || localStorage.getItem('margdrishti_token');
+    if (!token) {
+      token = `session_token_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+      session.token = token;
+      localStorage.setItem('margdrishti_token', token);
+      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
     }
 
     return session;

@@ -258,6 +258,7 @@ app.get("/api/health/db", async (req, res) => {
 // Authentication Endpoints
 // -------------------------------------------------------------
 app.post("/api/auth/login", async (req, res) => {
+  console.log("LOGIN ROUTE HIT:", req.body?.role, req.body?.identifier);
   const { role, identifier, email, password } = req.body;
   const loginRole = (role || "CITIZEN").toUpperCase();
   const loginIdent = (identifier || email || "").trim();
@@ -383,39 +384,43 @@ app.post("/api/auth/signup", async (req, res) => {
       return res.status(409).json({ message: "An account with this email already exists." });
     }
 
-    // Generate next user_id
-    const prefix = signupRole === "CITIZEN" ? "CIT-" : signupRole === "ENGINEER" ? "ENG-" : "AUTHUSER-";
+    
+    // Generate the next user_id safely
+    const prefix =
+      signupRole === "CITIZEN" ? "CIT-" :
+      signupRole === "ENGINEER" ? "ENG-" :
+      "AUTHUSER-";
+
+    // Lock the role-specific ID generation process so concurrent
+    // signups for the same role do not generate the same ID.
+    await client.query(
+      `SELECT pg_advisory_xact_lock(hashtext($1))`,
+      [`margdrishti-user-id-${signupRole}`]
+    );
 
     const maxRes = await client.query(
-      `SELECT user_id
+      `SELECT COALESCE(
+         MAX(SUBSTRING(user_id FROM '[0-9]+$')::BIGINT),
+         0
+       ) AS max_num
        FROM road.users
        WHERE role = $1
          AND user_id LIKE $2
-       ORDER BY
-         CASE
-           WHEN user_id ~ $3
-           THEN substring(user_id FROM $4)::BIGINT
-           ELSE 0
-         END DESC
-       LIMIT 1`,
+         AND user_id ~ $3`,
       [
         signupRole,
         `${prefix}%`,
-        signupRole === "CITIZEN" ? "^CIT-[0-9]+$" : signupRole === "ENGINEER" ? "^ENG-[0-9]+$" : "^AUTHUSER-[0-9]+$",
-        signupRole === "CITIZEN" ? 5 : signupRole === "ENGINEER" ? 5 : 10
+        signupRole === "CITIZEN"
+          ? "^CIT-[0-9]+$"
+          : signupRole === "ENGINEER"
+            ? "^ENG-[0-9]+$"
+            : "^AUTHUSER-[0-9]+$"
       ]
     );
 
-    let nextNum = 1;
-
-    if (maxRes.rowCount > 0) {
-      const match = maxRes.rows[0].user_id.match(/(\d+)$/);
-      if (match) {
-        nextNum = parseInt(match[1], 10) + 1;
-      }
-    }
-
+    const nextNum = Number(maxRes.rows[0].max_num) + 1;
     const newUserId = `${prefix}${String(nextNum).padStart(4, "0")}`;
+
 
     const insertResult = await client.query(
       `INSERT INTO road.users (user_id, name, email, password_hash, phone, role)
