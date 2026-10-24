@@ -1,11 +1,10 @@
+// Production API URL. Do not use localhost from a deployed browser: that points to the visitor's own computer.
 const API_BASE_URL = (() => {
   const hostname = window.location.hostname;
-
   if (hostname === "localhost" || hostname === "127.0.0.1") {
     return "http://localhost:5000/api";
   }
-
-  return "https://YOUR-BACKEND-DOMAIN/api";
+  return "https://margdrishti-backend.onrender.com/api";
 })();
 
 export async function apiRequest(endpoint, options = {}) {
@@ -50,7 +49,7 @@ export async function apiRequest(endpoint, options = {}) {
     if (response.status === 401 && !endpoint.startsWith("/auth/")) {
       console.warn("API request rejected with 401 Unauthorized for endpoint:", endpoint);
       // If unauthorized on a protected page, safely redirect to login
-      if (typeof window !== "undefined" && !window.location.pathname.endsWith("index.html") && window.location.pathname !== "/" && !window.location.pathname.endsWith("map.html")) {
+      if (typeof window !== "undefined" && !window.location.pathname.endsWith("index.html") && !window.location.pathname.endsWith("map.html")) {
         localStorage.removeItem("margdrishti_auth");
         localStorage.removeItem("margdrishti_token");
         window.location.replace("index.html?unauthorized=true");
