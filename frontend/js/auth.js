@@ -219,12 +219,14 @@ class AuthServiceManager {
         window.dispatchEvent(new CustomEvent('margdrishti:auth_changed', { detail: sessionData }));
         return { success: true, session: sessionData };
       }
-    } catch (apiErr) {
-      console.warn('Backend login attempt encountered an issue, checking local credentials:', apiErr.message);
-      if (apiErr.message && (apiErr.message.toLowerCase().includes('incorrect password') || apiErr.message.toLowerCase().includes('password is required'))) {
-        return { success: false, error: apiErr.message };
-      }
-    }
+   } catch (apiErr) {
+  console.error('Backend login failed:', apiErr.message);
+
+  return {
+    success: false,
+    error: apiErr.message || 'Login failed. Please check the backend.'
+  };
+}
 
     // 2. Offline / Local fallback against validated database demo accounts
     const users = this.getUsers();

@@ -1000,14 +1000,26 @@ async function submitComplaint() {
         image_authenticity_status: "ORIGINAL"
       }
     };
+    
+const authToken =
+  activeCitizenSession?.token ||
+  AuthService.getAuthToken() ||
+  localStorage.getItem("margdrishti_token");
 
-    const response = await fetch("http://localhost:5000/api/complaints", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(payload)
-    });
+if (!authToken) {
+  throw new Error(
+    "Your login session has no authentication token. Please log out and log in again."
+  );
+}
+
+const response = await fetch("http://localhost:5000/api/complaints", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${authToken}`
+  },
+  body: JSON.stringify(payload)
+});
 
     // Handle both JSON responses and unexpected server responses.
     const responseText = await response.text();
