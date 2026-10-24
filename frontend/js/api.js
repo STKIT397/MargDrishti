@@ -1,14 +1,11 @@
 const API_BASE_URL = (() => {
-  if (typeof window !== "undefined" && window.location) {
-    const { protocol, hostname, port } = window.location;
-    if (port === "5000") {
-      return `${protocol}//${hostname}:${port}/api`;
-    }
-    if (hostname !== "localhost" && hostname !== "127.0.0.1" && !hostname.includes("vercel.app")) {
-      return `${protocol}//${hostname}:5000/api`;
-    }
+  const hostname = window.location.hostname;
+
+  if (hostname === "localhost" || hostname === "127.0.0.1") {
+    return "http://localhost:5000/api";
   }
-  return "http://localhost:5000/api";
+
+  return "https://YOUR-BACKEND-DOMAIN/api";
 })();
 
 export async function apiRequest(endpoint, options = {}) {
