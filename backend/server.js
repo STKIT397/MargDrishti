@@ -237,6 +237,18 @@ app.post("/api/ai/analyze", async (req, res) => {
 });
 
 app.get("/api/health/db", async (req, res) => {
+  const configStatus = typeof pool.getConfigurationStatus === "function"
+    ? pool.getConfigurationStatus()
+    : { configured: true };
+
+  if (!configStatus.configured) {
+    return res.status(503).json({
+      message: "Database configuration is incomplete",
+      error: `Set DATABASE_URL or provide the missing database variables: ${configStatus.missingVariables.join(", ")}.`,
+      configuration: configStatus,
+    });
+  }
+
   try {
     const result = await pool.query(`
       SELECT current_database() AS database,
@@ -244,13 +256,34 @@ app.get("/api/health/db", async (req, res) => {
              current_schema() AS schema
     `);
 
+    // Check the schema/table required by login, not just whether PostgreSQL is reachable.
+    const usersTable = await pool.query(
+      "SELECT to_regclass('road.users') AS users_table"
+    );
+
     res.json({
       message: "Database connection successful",
       ...result.rows[0],
+      requiredLoginTableExists: Boolean(usersTable.rows[0]?.users_table),
+      ...(usersTable.rows[0]?.users_table
+        ? {}
+        : { schemaWarning: "The road.users table is missing. The base database schema must be created before login can work." }),
     });
   } catch (error) {
-    console.error("Database error:", error.message);
-    res.status(500).json({ message: "Database connection failed", error: error.message });
+    const errorCode = error?.code || "UNKNOWN";
+    const errorMessage = error?.message || "No error message was provided by the PostgreSQL driver.";
+    console.error("[Database health check failed]", {
+      code: errorCode,
+      message: errorMessage,
+      detail: error?.detail,
+      hint: error?.hint,
+    });
+    res.status(503).json({
+      message: "Database connection failed",
+      error: errorMessage,
+      code: errorCode,
+      configuration: configStatus,
+    });
   }
 });
 
@@ -348,8 +381,16 @@ app.post("/api/auth/login", async (req, res) => {
       }
     });
   } catch (error) {
-    console.error("Login error:", error);
-    res.status(500).json({ message: "Login failed.", error: error.message });
+    console.error("[Login] Database/query failure:", {
+      code: error?.code || "UNKNOWN",
+      message: error?.message || "No error message was provided by the PostgreSQL driver.",
+      detail: error?.detail,
+      hint: error?.hint,
+    });
+    res.status(500).json({
+      message: "Login failed because the database query could not be completed.",
+      code: error?.code || "UNKNOWN",
+    });
   }
 });
 

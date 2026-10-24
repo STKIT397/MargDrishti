@@ -1,0 +1,4 @@
+Pillow
+Flask
+Flask-Cors
+ultralytics
