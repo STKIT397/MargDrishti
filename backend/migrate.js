@@ -75,6 +75,10 @@ async function runMigration() {
     // Ensure priority_breakdown column exists if table predated it
     await client.query("ALTER TABLE road.complaints ADD COLUMN IF NOT EXISTS priority_breakdown JSONB");
 
+    // Ensure road.complaint_id_seq exists
+    console.log("[Migration] Ensuring complaint_id_seq exists...");
+    await client.query("CREATE SEQUENCE IF NOT EXISTS road.complaint_id_seq START WITH 1");
+
     // 1e. Complaint Locations
     await client.query(`
       CREATE TABLE IF NOT EXISTS road.complaint_locations (
