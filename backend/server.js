@@ -7,10 +7,10 @@ const cors = require("cors");
 const crypto = require("crypto");
 const { spawn } = require("child_process");
 const { PriorityEngine } = require("./priorityEngine");
-const { runMigration } = require("./migrate");
+const { runMigrationWithRetry } = require("./migrate");
 
 // Ensure database schema migrations and seed demo engineers are present
-runMigration().catch((err) => console.error("[Startup Migration Warning]:", err.message));
+runMigrationWithRetry().catch((err) => console.error("[Startup Migration Warning]:", err.message));
 
 const app = express();
 

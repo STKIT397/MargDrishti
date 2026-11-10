@@ -5,6 +5,7 @@
  */
 
 import { SAMPLE_ROAD_IMAGES } from './mockData.js';
+import { apiRequest } from './api.js';
 
 export const AiService = {
   /**
@@ -34,9 +35,8 @@ export const AiService = {
         onProgress({ stageIndex: 1, totalStages: stages.length, message: stages[1] });
       }
 
-      const response = await fetch('http://localhost:5000/api/ai/analyze', {
+      const data = await apiRequest('/ai/analyze', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           image: imageSrc,
           mediaType: 'image',
@@ -48,10 +48,8 @@ export const AiService = {
         onProgress({ stageIndex: 2, totalStages: stages.length, message: stages[2] });
       }
 
-      const data = await response.json().catch(() => null);
-
-      if (!response.ok || !data || data.success === false) {
-        const errorMsg = data?.error || `AI inference service responded with status ${response.status}.`;
+      if (!data || data.success === false) {
+        const errorMsg = data?.error || 'AI inference service returned an unsuccessful response.';
         throw new Error(errorMsg);
       }
 

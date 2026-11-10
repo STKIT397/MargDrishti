@@ -7,6 +7,7 @@
 import { INITIAL_SEED_COMPLAINTS, SAMPLE_ROAD_IMAGES } from './mockData.js';
 import { PriorityEngine } from './priorityEngine.js';
 import {
+  apiRequest,
   fetchComplaints,
   fetchComplaintById,
   fetchPublicMapHazards,
@@ -481,9 +482,8 @@ class MargDrishtiStoreManager {
       if (newStatus === 'IN_PROGRESS') {
         await markInProgressApi(complaintId, 'AUTHUSER-0001', 'AUTHUSER-0001', remarks);
       } else {
-        await fetch(`http://localhost:5000/api/complaints/${encodeURIComponent(complaintId)}/status`, {
+        await apiRequest(`/complaints/${encodeURIComponent(complaintId)}/status`, {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ status: newStatus, changed_by: 'AUTHUSER-0001', remarks })
         });
       }
