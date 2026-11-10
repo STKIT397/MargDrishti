@@ -78,6 +78,13 @@ async function runMigration() {
     // Ensure road.complaint_id_seq exists
     console.log("[Migration] Ensuring complaint_id_seq exists...");
     await client.query("CREATE SEQUENCE IF NOT EXISTS road.complaint_id_seq START WITH 1");
+    // Ensure complaint_date exists on road.complaints
+    await client.query("ALTER TABLE road.complaints ADD COLUMN IF NOT EXISTS complaint_date TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP");
+    // Ensure location columns exist on road.complaint_locations
+    await client.query("ALTER TABLE road.complaint_locations ADD COLUMN IF NOT EXISTS city VARCHAR(100)");
+    await client.query("ALTER TABLE road.complaint_locations ADD COLUMN IF NOT EXISTS district VARCHAR(100)");
+    await client.query("ALTER TABLE road.complaint_locations ADD COLUMN IF NOT EXISTS state VARCHAR(100)");
+    await client.query("ALTER TABLE road.complaint_locations ADD COLUMN IF NOT EXISTS location_source VARCHAR(20) DEFAULT 'GPS'");
 
     // 1e. Complaint Locations
     await client.query(`
