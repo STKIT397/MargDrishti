@@ -162,6 +162,10 @@ async function runMigration() {
     await client.query("ALTER TABLE road.repairs ADD COLUMN IF NOT EXISTS progress_pct INTEGER DEFAULT 0");
     await client.query("ALTER TABLE road.repairs ADD COLUMN IF NOT EXISTS repair_notes TEXT");
     await client.query("ALTER TABLE road.repairs ADD COLUMN IF NOT EXISTS completion_image_path TEXT");
+    await client.query("ALTER TABLE road.repairs ADD COLUMN IF NOT EXISTS engineer_id VARCHAR(30) REFERENCES road.users(user_id)");
+    await client.query("ALTER TABLE road.repairs ADD COLUMN IF NOT EXISTS repair_started_at TIMESTAMP WITHOUT TIME ZONE");
+    await client.query("ALTER TABLE road.repairs ADD COLUMN IF NOT EXISTS repair_completed_at TIMESTAMP WITHOUT TIME ZONE");
+    await client.query("ALTER TABLE road.repairs ADD COLUMN IF NOT EXISTS repair_status VARCHAR(30) DEFAULT 'IN_PROGRESS'");
 
     // 1j. Repair Monitoring
     await client.query(`
@@ -179,6 +183,13 @@ async function runMigration() {
         created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // Ensure repair_monitoring columns exist
+    await client.query("ALTER TABLE road.repair_monitoring ADD COLUMN IF NOT EXISTS monitoring_status VARCHAR(50) DEFAULT 'IN_PROGRESS'");
+    await client.query("ALTER TABLE road.repair_monitoring ADD COLUMN IF NOT EXISTS observations_count INTEGER DEFAULT 0");
+    await client.query("ALTER TABLE road.repair_monitoring ADD COLUMN IF NOT EXISTS authority_confirmation BOOLEAN DEFAULT FALSE");
+    await client.query("ALTER TABLE road.repair_monitoring ADD COLUMN IF NOT EXISTS stability_score NUMERIC(5,2)");
+    await client.query("ALTER TABLE road.repair_monitoring ADD COLUMN IF NOT EXISTS result VARCHAR(50)");
 
     // 1k. Sensor Observations
     await client.query(`
