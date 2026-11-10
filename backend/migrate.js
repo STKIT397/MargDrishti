@@ -166,6 +166,7 @@ async function runMigration() {
     await client.query("ALTER TABLE road.repairs ADD COLUMN IF NOT EXISTS repair_started_at TIMESTAMP WITHOUT TIME ZONE");
     await client.query("ALTER TABLE road.repairs ADD COLUMN IF NOT EXISTS repair_completed_at TIMESTAMP WITHOUT TIME ZONE");
     await client.query("ALTER TABLE road.repairs ADD COLUMN IF NOT EXISTS repair_status VARCHAR(30) DEFAULT 'IN_PROGRESS'");
+    await client.query("ALTER TABLE road.repairs ADD COLUMN IF NOT EXISTS repair_description TEXT");
 
     // 1j. Repair Monitoring
     await client.query(`
